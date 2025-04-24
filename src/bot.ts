@@ -9,7 +9,14 @@ import OpenAI from 'openai';
 config(); 
 
 // Check for essential environment variables
-
+const requiredEnvVars = [
+  'DISCORD_TOKEN',
+  'DISCORD_CLIENT_ID',
+  'SPOTIFY_CLIENT_ID',
+  'SPOTIFY_CLIENT_SECRET',
+  'SPOTIFY_REDIRECT_URI',
+  'OPENAI_API_KEY',
+];
 
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {
