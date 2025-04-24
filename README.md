@@ -1,62 +1,64 @@
-# Music Nerd Profile Generator
+# Music Nerd Profile Generator Discord Bot
 
-This app generates a music nerd profile based on your Spotify top tracks. It analyzes your music taste and creates a personalized profile with both text analysis and an AI-generated image that represents your music preferences.
+A Discord bot that generates music nerd profiles based on users' Spotify listening history. This bot is a Discord version of the mnprofile-gen web application.
 
-## Requirements
+## Features
 
-1. Spotify client id. You can create one here: [Spotify Developer Dashboard](https://developer.spotify.com)
-2. OpenAI api key. You can create one here: [OpenAI Platform](https://platform.openai.com)
+- Connect your Spotify account via OAuth
+- View your top tracks
+- Generate a music nerd profile based on your listening history
+- Deployable to Vercel
 
-## Installation
+## Prerequisites
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/mnprofile-gen.git
-   cd mnprofile-gen
-   ```
+- Node.js 18 or higher
+- A Discord bot token
+- A Spotify Developer account
+- An OpenAI API key
 
+## Setup
+
+1. Clone the repository
 2. Install dependencies:
    ```bash
    npm install
    ```
-
-3. Set up environment variables:
-   - Create a `.env.local` file in the root directory
-   - Add the following variables:
-     ```env
-     NEXT_PUBLIC_SPOTIFY_CLIENT_ID=your_spotify_client_id
-     NEXT_PUBLIC_REDIRECT_URI=http://localhost:3000/api/auth/callback
-     SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-     OPENAI_API_KEY=your_openai_api_key
-     ```
-
-4. Spotify Setup:
-   - Go to [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
-   - Create a new application
-   - Add `http://localhost:3000/api/auth/callback` to the Redirect URIs in your Spotify app settings
-   - Copy your Client ID and Client Secret to the `.env.local` file
-
-5. OpenAI Setup:
-   - Go to [OpenAI Platform](https://platform.openai.com/api-keys)
-   - Create a new API key
-   - Copy the API key to the `.env.local` file
-
-## Running the App
-
-1. Start the development server:
-   ```bash
-   npm run dev
+3. Create a `.env` file with the following variables:
+   ```
+   DISCORD_TOKEN=your_discord_bot_token
+   DISCORD_CLIENT_ID=your_discord_client_id
+   DISCORD_CLIENT_SECRET=your_discord_client_secret
+   SPOTIFY_CLIENT_ID=your_spotify_client_id
+   SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+   SPOTIFY_REDIRECT_URI=http://localhost:3000/api/auth/callback
+   OPENAI_API_KEY=your_openai_api_key
+   PORT=3000
+   NODE_ENV=development
    ```
 
-2. Open [http://localhost:3000](http://localhost:3000) in your browser
+## Development
 
-## Troubleshooting
+Run the bot in development mode:
+```bash
+npm run dev
+```
 
-- **Spotify Authentication Error**: Make sure your Redirect URI in the Spotify Developer Dashboard exactly matches the one in your `.env.local` file
-- **OpenAI Error**: Ensure you have sufficient credits and your API key has the necessary permissions
-- **"Failed to analyze tracks"**: Check your OpenAI API key and ensure it has access to both the GPT and DALL-E APIs
+## Deployment to Vercel
+
+1. Create a new project on Vercel
+2. Connect your GitHub repository
+3. Configure the following environment variables in Vercel:
+   - All variables from your `.env` file
+   - Update `SPOTIFY_REDIRECT_URI` to your Vercel deployment URL
+4. Deploy!
+
+## Commands
+
+- `/connect` - Connect your Spotify account
+- `/profile` - Generate your music nerd profile
+- `/tracks` - View your top tracks
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT
 

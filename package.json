@@ -1,29 +1,26 @@
 {
-  "name": "mnprofile-gen",
-  "version": "0.1.0",
-  "private": true,
+  "name": "mnprofile-gen-discord",
+  "version": "1.0.0",
+  "description": "Discord bot version of mnprofile-gen",
+  "main": "src/bot.ts",
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "dev": "ts-node-dev --respawn --transpile-only src/bot.ts",
+    "build": "tsc",
+    "start": "node dist/bot.js"
   },
   "dependencies": {
-    "next": "15.2.4",
-    "openai": "^4.91.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-hot-toast": "^2.5.2"
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.1",
+    "openai": "^4.28.0",
+    "spotify-web-api-node": "^5.0.2",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "15.2.4",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "@types/node": "^20.11.16",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
   }
 }
