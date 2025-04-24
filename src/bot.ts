@@ -68,6 +68,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName('verify')
     .setDescription('Check if your Spotify account is connected'),
+  new SlashCommandBuilder()
+    .setName('image')
+    .setDescription('Generate an image based on your music taste'),
 ].map(command => command.toJSON());
 
 // Register commands
@@ -103,6 +106,9 @@ client.on('interactionCreate', async interaction => {
       break;
     case 'verify':
       await handleVerify(interaction);
+      break;
+    case 'image':
+      await handleImage(interaction);
       break;
   }
 });
@@ -261,6 +267,89 @@ async function handleVerify(interaction: any) {
   } else {
     await interaction.reply({
       content: '❌ Your Spotify account is not connected. Use /connect to link it.',
+      ephemeral: true,
+    });
+  }
+}
+
+async function handleImage(interaction: any) {
+  const userId = interaction.user.id;
+  const accessToken = userTokens.get(userId);
+
+  if (!accessToken) {
+    await interaction.reply({
+      content: 'Please connect your Spotify account first using /connect',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  // Show typing indicator
+  await interaction.deferReply();
+
+  spotifyApi.setAccessToken(accessToken);
+
+  try {
+    // Fetch top tracks
+    const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
+    const trackList = topTracks.body.items
+      .map(track => `${track.name} by ${track.artists[0].name}`)
+      .join(', ');
+
+    // Generate image prompt
+    const completion = await openai.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a creative prompt engineer who creates vivid, artistic prompts for image generation based on music taste.',
+        },
+        {
+          role: 'user',
+          content: `Create a detailed, artistic prompt for an image that represents this music taste: ${trackList}. 
+          The image should be abstract and artistic, not literal. Focus on colors, moods, and emotions. 
+          Keep the prompt under 100 words.`,
+        },
+      ],
+      model: 'gpt-4',
+      temperature: 0.7,
+    });
+
+    const imagePrompt = completion.choices[0].message.content;
+
+    // Generate image using DALL-E
+    const imageResponse = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: imagePrompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "standard",
+      style: "vivid",
+    });
+
+    const imageUrl = imageResponse.data[0].url;
+
+    // Create rich embed
+    const embed = new EmbedBuilder()
+      .setTitle(`🎨 ${interaction.user.username}'s Music Visualization`)
+      .setDescription(`*"${imagePrompt}"*`)
+      .setImage(imageUrl)
+      .setColor('#1DB954')
+      .setFooter({ text: 'Generated with Spotify & OpenAI DALL-E' })
+      .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+  } catch (error) {
+    console.error('Image generation error:', error);
+    
+    let errorMessage = 'An error occurred while generating your image.';
+    if (error.statusCode === 401) {
+      errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+    } else if (error.statusCode === 429) {
+      errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+    }
+
+    await interaction.editReply({
+      content: errorMessage,
       ephemeral: true,
     });
   }
