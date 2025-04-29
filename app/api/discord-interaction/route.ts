@@ -6,6 +6,20 @@ import { handleTracks } from '../commands/tracks';
 import { handleVerify } from '../commands/verify';
 import { handleImage } from '../commands/image';
 
+// Validate environment variables
+const requiredEnvVars = {
+  DISCORD_PUBLIC_KEY: process.env.DISCORD_PUBLIC_KEY,
+};
+
+// Check if any required environment variables are missing
+const missingEnvVars = Object.entries(requiredEnvVars)
+  .filter(([_, value]) => !value)
+  .map(([key]) => key);
+
+if (missingEnvVars.length > 0) {
+  throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+}
+
 // Verify Discord interaction
 function verifyDiscordRequest(clientKey: string, body: any, signature: string, timestamp: string) {
   return verifyKey(body, signature, timestamp, clientKey);
@@ -23,7 +37,7 @@ export async function POST(req: NextRequest) {
 
   // Verify the request
   const isValidRequest = verifyDiscordRequest(
-    process.env.DISCORD_PUBLIC_KEY!,
+    requiredEnvVars.DISCORD_PUBLIC_KEY!,
     body,
     signature,
     timestamp
@@ -59,7 +73,7 @@ export async function POST(req: NextRequest) {
         default:
           return NextResponse.json({ error: 'Unknown command' }, { status: 400 });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error handling command:', error);
       return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }
