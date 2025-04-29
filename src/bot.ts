@@ -9,20 +9,23 @@ import OpenAI from 'openai';
 config(); 
 
 // Check for essential environment variables
-const requiredEnvVars = [
-  'DISCORD_TOKEN',
-  'DISCORD_CLIENT_ID',
-  'SPOTIFY_CLIENT_ID',
-  'SPOTIFY_CLIENT_SECRET',
-  'SPOTIFY_REDIRECT_URI',
-  'OPENAI_API_KEY',
-];
+const requiredEnvVars = {
+  DISCORD_TOKEN: process.env.DISCORD_TOKEN,
+  DISCORD_CLIENT_ID: process.env.DISCORD_CLIENT_ID,
+  SPOTIFY_CLIENT_ID: process.env.SPOTIFY_CLIENT_ID,
+  SPOTIFY_CLIENT_SECRET: process.env.SPOTIFY_CLIENT_SECRET,
+  SPOTIFY_REDIRECT_URI: process.env.SPOTIFY_REDIRECT_URI,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+};
 
-for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
-    console.error(`Error: Missing required environment variable: ${envVar}`);
-    process.exit(1); // Exit if a required variable is missing
-  }
+// Check if any required environment variables are missing
+const missingEnvVars = Object.entries(requiredEnvVars)
+  .filter(([_, value]) => !value)
+  .map(([key]) => key);
+
+if (missingEnvVars.length > 0) {
+  console.error(`Error: Missing required environment variables: ${missingEnvVars.join(', ')}`);
+  process.exit(1); // Exit if a required variable is missing
 }
 
 // Initialize Discord client
@@ -36,14 +39,14 @@ const client = new Client({
 
 // Initialize Spotify API
 const spotifyApi = new SpotifyWebApi({
-  clientId: process.env.SPOTIFY_CLIENT_ID,
-  clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-  redirectUri: process.env.SPOTIFY_REDIRECT_URI,
+  clientId: requiredEnvVars.SPOTIFY_CLIENT_ID!,
+  clientSecret: requiredEnvVars.SPOTIFY_CLIENT_SECRET!,
+  redirectUri: requiredEnvVars.SPOTIFY_REDIRECT_URI!,
 });
 
 // Initialize OpenAI
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: requiredEnvVars.OPENAI_API_KEY!,
 });
 
 // Initialize Express server for OAuth callback
@@ -74,12 +77,12 @@ const commands = [
 ].map(command => command.toJSON());
 
 // Register commands
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
+const rest = new REST({ version: '10' }).setToken(requiredEnvVars.DISCORD_TOKEN!);
 
 (async () => {
   try {
     await rest.put(
-      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID!),
+      Routes.applicationCommands(requiredEnvVars.DISCORD_CLIENT_ID!),
       { body: commands },
     );
     console.log('Successfully registered application commands.');
@@ -201,14 +204,17 @@ async function handleProfile(interaction: any) {
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Profile generation error:', error);
     
     let errorMessage = 'An error occurred while generating your profile.';
-    if (error.statusCode === 401) {
-      errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-    } else if (error.statusCode === 429) {
-      errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      const spotifyError = error as { statusCode: number };
+      if (spotifyError.statusCode === 401) {
+        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+      } else if (spotifyError.statusCode === 429) {
+        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+      }
     }
 
     await interaction.editReply({
@@ -319,7 +325,7 @@ async function handleImage(interaction: any) {
     // Generate image using DALL-E
     const imageResponse = await openai.images.generate({
       model: "dall-e-3",
-      prompt: imagePrompt,
+      prompt: imagePrompt || '',
       n: 1,
       size: "1024x1024",
       quality: "standard",
@@ -332,20 +338,23 @@ async function handleImage(interaction: any) {
     const embed = new EmbedBuilder()
       .setTitle(`🎨 ${interaction.user.username}'s Music Visualization`)
       .setDescription(`*"${imagePrompt}"*`)
-      .setImage(imageUrl)
+      .setImage(imageUrl || '')
       .setColor('#1DB954')
       .setFooter({ text: 'Generated with Spotify & OpenAI DALL-E' })
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Image generation error:', error);
     
     let errorMessage = 'An error occurred while generating your image.';
-    if (error.statusCode === 401) {
-      errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-    } else if (error.statusCode === 429) {
-      errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      const spotifyError = error as { statusCode: number };
+      if (spotifyError.statusCode === 401) {
+        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+      } else if (spotifyError.statusCode === 429) {
+        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+      }
     }
 
     await interaction.editReply({
