@@ -1,39 +1,20 @@
 import { NextResponse } from 'next/server';
-import { EmbedBuilder } from 'discord.js';
-import SpotifyWebApi from 'spotify-web-api-node';
-import OpenAI from 'openai';
-import { getUserToken } from '../../../lib/storage';
-
-// Initialize Spotify API
-const spotifyApi = new SpotifyWebApi({
-  clientId: process.env.SPOTIFY_CLIENT_ID,
-  clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
-  redirectUri: process.env.SPOTIFY_REDIRECT_URI,
-});
-
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { spotifyApi, userTokens } from '../spotify';
+import { openai } from '../openai';
 
 export async function handleProfile(interaction: any) {
-  const userId = interaction.member.user.id;
-  const accessToken = await getUserToken(userId);
+  const userId = interaction.user.id;
+  const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
     return NextResponse.json({
       type: 4,
       data: {
         content: 'Please connect your Spotify account first using /connect',
-        flags: 64, // Ephemeral flag
+        flags: 64, // ephemeral
       },
     });
   }
-
-  // Defer the response
-  await NextResponse.json({
-    type: 5, // Deferred response
-  });
 
   spotifyApi.setAccessToken(accessToken);
 
@@ -43,8 +24,8 @@ export async function handleProfile(interaction: any) {
     
     // Format tracks for display
     const trackList = topTracks.body.items
-      .map((track: any, index: number) => {
-        const artists = track.artists.map((artist: any) => artist.name).join(', ');
+      .map((track, index) => {
+        const artists = track.artists.map(artist => artist.name).join(', ');
         return `${index + 1}. **${track.name}** - ${artists}`;
       })
       .join('\n');
@@ -70,25 +51,13 @@ export async function handleProfile(interaction: any) {
 
     const profile = completion.choices[0].message.content;
 
-    // Create rich embed
-    const embed = new EmbedBuilder()
-      .setTitle(`🎵 ${interaction.member.user.username}'s Music Nerd Profile`)
-      .setDescription(profile)
-      .addFields(
-        { name: '🎧 Top Tracks', value: trackList }
-      )
-      .setColor('#1DB954')
-      .setFooter({ text: 'Generated with Spotify & OpenAI' })
-      .setTimestamp();
-
-    // Send the follow-up message
     return NextResponse.json({
       type: 4,
       data: {
-        embeds: [embed.toJSON()],
+        content: `**🎵 ${interaction.user.username}'s Music Nerd Profile**\n\n${profile}\n\n**🎧 Top Tracks**\n${trackList}`,
       },
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Profile generation error:', error);
     
     let errorMessage = 'An error occurred while generating your profile.';
@@ -102,7 +71,7 @@ export async function handleProfile(interaction: any) {
       type: 4,
       data: {
         content: errorMessage,
-        flags: 64, // Ephemeral flag
+        flags: 64, // ephemeral
       },
     });
   }
