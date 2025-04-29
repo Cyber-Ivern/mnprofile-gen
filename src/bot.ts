@@ -57,22 +57,31 @@ app.use(express.json());
 
 // Discord interaction verification
 app.post('/', (req: Request, res: Response) => {
+  console.log('Received verification request');
+  console.log('Headers:', req.headers);
+  console.log('Body:', req.body);
+
   const signature = req.headers['x-signature-ed25519'];
   const timestamp = req.headers['x-signature-timestamp'];
   const body = JSON.stringify(req.body);
 
   if (!signature || !timestamp) {
+    console.log('Missing signature or timestamp');
     return res.status(401).send('Missing signature or timestamp');
   }
 
   try {
+    console.log('Verifying with public key:', process.env.DISCORD_PUBLIC_KEY);
     const isValid = verifyKey(body, signature as string, timestamp as string, process.env.DISCORD_PUBLIC_KEY!);
+    console.log('Verification result:', isValid);
+
     if (!isValid) {
       return res.status(401).send('Invalid signature');
     }
 
     // Handle the verification request
     if (req.body.type === 1) {
+      console.log('Sending verification response');
       return res.json({ type: 1 });
     }
 
