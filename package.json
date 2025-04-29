@@ -7,10 +7,12 @@
     "dev": "next dev",
     "bot": "tsx src/bot.ts",
     "build": "tsc",
+    "build:bot": "npm install && tsc",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
+    "discord.js": "^14.14.1",
     "discord-interactions": "^3.4.0",
     "dotenv": "^16.4.5",
     "fs-extra": "^11.2.0",

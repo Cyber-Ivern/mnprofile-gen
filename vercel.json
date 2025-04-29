@@ -6,7 +6,7 @@
       "use": "@vercel/node",
       "config": {
         "includeFiles": ["src/**/*"],
-        "buildCommand": "npm install && npm run build",
+        "buildCommand": "npm run build:bot",
         "nodeVersion": "22.x"
       }
     }
