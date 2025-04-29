@@ -2,6 +2,7 @@
   "name": "mnprofile-gen",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "bot": "tsx src/bot.ts",
