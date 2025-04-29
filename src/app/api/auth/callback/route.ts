@@ -6,7 +6,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { getAccessToken, getUserProfile, getTopTracks } from '@/utils/spotify';
+import { getAccessToken, getUserProfile, getTopTracks } from '../../../../utils/spotify';
 
 interface StateParams {
   timeRange: string;
