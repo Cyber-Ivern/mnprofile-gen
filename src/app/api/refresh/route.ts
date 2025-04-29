@@ -7,7 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getSpotifyAccessToken, getTopTracks } from '@/utils/spotify-client';
+import { getSpotifyAccessToken, getTopTracks } from '@src/utils/spotify-client';
 
 export async function POST(request: Request) {
   try {
