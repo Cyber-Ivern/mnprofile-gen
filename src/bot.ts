@@ -1,9 +1,10 @@
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder } from 'discord.js';
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, InteractionResponseType } from 'discord.js';
 import { config } from 'dotenv';
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import SpotifyWebApi from 'spotify-web-api-node';
 import OpenAI from 'openai';
+import { verifyKey } from 'discord-interactions';
 
 // Load environment variables
 config(); 
@@ -53,6 +54,34 @@ const openai = new OpenAI({
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Discord interaction verification
+app.post('/', (req: Request, res: Response) => {
+  const signature = req.headers['x-signature-ed25519'];
+  const timestamp = req.headers['x-signature-timestamp'];
+  const body = JSON.stringify(req.body);
+
+  if (!signature || !timestamp) {
+    return res.status(401).send('Missing signature or timestamp');
+  }
+
+  try {
+    const isValid = verifyKey(body, signature as string, timestamp as string, process.env.DISCORD_PUBLIC_KEY!);
+    if (!isValid) {
+      return res.status(401).send('Invalid signature');
+    }
+
+    // Handle the verification request
+    if (req.body.type === 1) {
+      return res.json({ type: 1 });
+    }
+
+    return res.status(200).send('OK');
+  } catch (error) {
+    console.error('Verification error:', error);
+    return res.status(401).send('Verification failed');
+  }
+});
 
 // Store user tokens temporarily (in production, use a proper database)
 const userTokens = new Map<string, string>();
