@@ -2,6 +2,19 @@ import { NextResponse } from 'next/server';
 import { spotifyApi, userTokens } from '../spotify';
 import { openai } from '../openai';
 
+interface SpotifyArtist {
+  name: string;
+}
+
+interface SpotifyTrack {
+  name: string;
+  artists: SpotifyArtist[];
+}
+
+interface SpotifyError {
+  statusCode: number;
+}
+
 export async function handleImage(interaction: any) {
   const userId = interaction.user.id;
   const accessToken = userTokens.get(userId);
@@ -22,7 +35,7 @@ export async function handleImage(interaction: any) {
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
     const trackList = topTracks.body.items
-      .map(track => `${track.name} by ${track.artists[0].name}`)
+      .map((track: SpotifyTrack) => `${track.name} by ${track.artists[0].name}`)
       .join(', ');
 
     // Generate image prompt
@@ -63,14 +76,17 @@ export async function handleImage(interaction: any) {
         content: `**🎨 ${interaction.user.username}'s Music Visualization**\n\n*"${imagePrompt}"*\n\n${imageUrl}`,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Image generation error:', error);
     
     let errorMessage = 'An error occurred while generating your image.';
-    if (error.statusCode === 401) {
-      errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-    } else if (error.statusCode === 429) {
-      errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      const spotifyError = error as SpotifyError;
+      if (spotifyError.statusCode === 401) {
+        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+      } else if (spotifyError.statusCode === 429) {
+        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+      }
     }
 
     return NextResponse.json({

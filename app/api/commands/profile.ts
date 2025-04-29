@@ -2,6 +2,19 @@ import { NextResponse } from 'next/server';
 import { spotifyApi, userTokens } from '../spotify';
 import { openai } from '../openai';
 
+interface SpotifyArtist {
+  name: string;
+}
+
+interface SpotifyTrack {
+  name: string;
+  artists: SpotifyArtist[];
+}
+
+interface SpotifyError {
+  statusCode: number;
+}
+
 export async function handleProfile(interaction: any) {
   const userId = interaction.user.id;
   const accessToken = userTokens.get(userId);
@@ -24,9 +37,9 @@ export async function handleProfile(interaction: any) {
     
     // Format tracks for display
     const trackList = topTracks.body.items
-      .map((track, index) => {
+      .map((track: SpotifyTrack) => {
         const artists = track.artists.map(artist => artist.name).join(', ');
-        return `${index + 1}. **${track.name}** - ${artists}`;
+        return `**${track.name}** - ${artists}`;
       })
       .join('\n');
 
@@ -57,14 +70,17 @@ export async function handleProfile(interaction: any) {
         content: `**🎵 ${interaction.user.username}'s Music Nerd Profile**\n\n${profile}\n\n**🎧 Top Tracks**\n${trackList}`,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Profile generation error:', error);
     
     let errorMessage = 'An error occurred while generating your profile.';
-    if (error.statusCode === 401) {
-      errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-    } else if (error.statusCode === 429) {
-      errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      const spotifyError = error as SpotifyError;
+      if (spotifyError.statusCode === 401) {
+        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+      } else if (spotifyError.statusCode === 429) {
+        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+      }
     }
 
     return NextResponse.json({
