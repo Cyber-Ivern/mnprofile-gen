@@ -7,7 +7,7 @@
       "config": {
         "includeFiles": ["src/**/*"],
         "buildCommand": "npm run build",
-        "nodeVersion": "18.x"
+        "nodeVersion": "22.x"
       }
     }
   ],
