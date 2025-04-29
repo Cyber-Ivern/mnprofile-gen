@@ -1,4 +1,3 @@
-import { EmbedBuilder } from 'discord.js';
 import { NextResponse } from 'next/server';
 import { spotifyApi, userTokens } from '../spotify';
 import { openai } from '../openai';
@@ -58,19 +57,10 @@ export async function handleImage(interaction: any) {
 
     const imageUrl = imageResponse.data[0].url;
 
-    // Create rich embed
-    const embed = new EmbedBuilder()
-      .setTitle(`🎨 ${interaction.user.username}'s Music Visualization`)
-      .setDescription(`*"${imagePrompt}"*`)
-      .setImage(imageUrl || '')
-      .setColor('#1DB954')
-      .setFooter({ text: 'Generated with Spotify & OpenAI DALL-E' })
-      .setTimestamp();
-
     return NextResponse.json({
       type: 4,
       data: {
-        embeds: [embed.toJSON()],
+        content: `**🎨 ${interaction.user.username}'s Music Visualization**\n\n*"${imagePrompt}"*\n\n${imageUrl}`,
       },
     });
   } catch (error) {

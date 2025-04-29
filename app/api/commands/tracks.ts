@@ -1,6 +1,5 @@
-import { EmbedBuilder } from 'discord.js';
 import { NextResponse } from 'next/server';
-import { spotifyApi } from '../spotify';
+import { spotifyApi, userTokens } from '../spotify';
 
 export async function handleTracks(interaction: any) {
   const userId = interaction.user.id;
@@ -21,20 +20,14 @@ export async function handleTracks(interaction: any) {
   try {
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
     
-    const embed = new EmbedBuilder()
-      .setTitle(`${interaction.user.username}'s Top Tracks`)
-      .setDescription(
-        topTracks.body.items
-          .map((track, index) => `${index + 1}. ${track.name} - ${track.artists[0].name}`)
-          .join('\n')
-      )
-      .setColor('#1DB954')
-      .setTimestamp();
+    const trackList = topTracks.body.items
+      .map((track, index) => `${index + 1}. ${track.name} - ${track.artists[0].name}`)
+      .join('\n');
 
     return NextResponse.json({
       type: 4,
       data: {
-        embeds: [embed.toJSON()],
+        content: `**${interaction.user.username}'s Top Tracks**\n\n${trackList}`,
       },
     });
   } catch (error) {
