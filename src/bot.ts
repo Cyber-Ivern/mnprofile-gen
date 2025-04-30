@@ -502,32 +502,27 @@ async function processProfile(interaction: any) {
     const displayName = interaction.member?.user?.username || interaction.user?.username;
     console.log('Profile - Prepared data:', { displayName, trackCount: tracks.length });
 
+    // Format tracks for display
+    const trackList = tracks
+      .map((track, index) => `${index + 1}. **${track.name}** - ${track.artist}`)
+      .join('\n');
+
     // Generate profile analysis using OpenAI
     console.log('Profile - Generating analysis with OpenAI...');
-    const prompt = `Analyze the following music taste and create a fun, engaging profile description. 
-    The person's name is ${displayName} and here are their top tracks:
-    ${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}
-    
-    Create a profile that:
-    1. Identifies their music taste and preferences
-    2. Makes observations about their listening habits
-    3. Uses a fun, engaging tone
-    4. Is 2-3 paragraphs long
-    5. Includes some emojis
-    
-    Format the response as a single paragraph.`;
-
     const completion = await retryOperation(
       () => openai.chat.completions.create({
         model: "gpt-4",
         messages: [
           {
             role: "system",
-            content: "You are a music analysis expert who creates engaging, fun profiles based on people's music taste."
+            content: `You are a witty and insightful music critic who creates engaging profiles based on someone's top tracks. 
+            Focus on identifying patterns, genres, and musical preferences. 
+            Be specific about the artists and songs mentioned.
+            Keep the profile concise (2-3 paragraphs) and engaging.`
           },
           {
             role: "user",
-            content: prompt
+            content: `Create a music nerd profile based on these top tracks: ${trackList}`
           }
         ],
         temperature: 0.7,
@@ -539,11 +534,6 @@ async function processProfile(interaction: any) {
 
     const profile = completion.choices[0].message.content;
     console.log('Profile - OpenAI response received');
-
-    // Format tracks for display
-    const trackList = tracks
-      .map((track, index) => `${index + 1}. **${track.name}** - ${track.artist}`)
-      .join('\n');
 
     // Create rich embed
     const embed = {
@@ -561,6 +551,17 @@ async function processProfile(interaction: any) {
       },
       timestamp: new Date().toISOString()
     };
+
+    // Update the original message using webhook
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        embeds: [embed]
+      })
+    });
 
     return {
       type: 7, // UPDATE_MESSAGE
@@ -582,6 +583,18 @@ async function processProfile(interaction: any) {
         }
       }
     }
+
+    // Update the original message with error
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: errorMessage,
+        flags: 64
+      })
+    });
 
     return {
       type: 7, // UPDATE_MESSAGE
@@ -648,16 +661,6 @@ async function processImage(interaction: any) {
 
     // Generate image prompt using OpenAI
     console.log('Image - Generating image prompt with OpenAI...');
-    const prompt = `Create a detailed prompt for DALL-E to generate an image that represents this music taste:
-    ${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}
-    
-    The prompt should:
-    1. Be highly detailed and specific
-    2. Capture the mood and style of the music
-    3. Be suitable for DALL-E image generation
-    4. Be 1-2 sentences long
-    5. Focus on creating a cohesive visual representation`;
-
     const completion = await retryOperation(
       () => openai.chat.completions.create({
         model: "gpt-4",
@@ -668,7 +671,15 @@ async function processImage(interaction: any) {
           },
           {
             role: "user",
-            content: prompt
+            content: `Create a detailed prompt for DALL-E to generate an image that represents this music taste:
+            ${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}
+            
+            The prompt should:
+            1. Be highly detailed and specific
+            2. Capture the mood and style of the music
+            3. Be suitable for DALL-E image generation
+            4. Be 1-2 sentences long
+            5. Focus on creating a cohesive visual representation`
           }
         ],
         temperature: 0.7,
@@ -713,6 +724,17 @@ async function processImage(interaction: any) {
       timestamp: new Date().toISOString()
     };
 
+    // Update the original message using webhook
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        embeds: [embed]
+      })
+    });
+
     return {
       type: 7, // UPDATE_MESSAGE
       data: {
@@ -733,6 +755,18 @@ async function processImage(interaction: any) {
         }
       }
     }
+
+    // Update the original message with error
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: errorMessage,
+        flags: 64
+      })
+    });
 
     return {
       type: 7, // UPDATE_MESSAGE
