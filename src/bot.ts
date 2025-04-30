@@ -176,26 +176,44 @@ client.on('interactionCreate', async interaction => {
 
 // Command handlers
 async function handleConnect(interaction: any) {
+  console.log('Connect command received');
+  console.log('User:', interaction.user.id);
+  console.log('Guild:', interaction.guildId);
+
   const scopes = [
     'user-top-read',
     'user-read-private',
     'user-read-email'
   ];
   
-  const state = interaction.user.id;
-  const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
-  
   try {
+    console.log('Creating authorization URL');
+    const state = interaction.user.id;
+    const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
+    console.log('Authorization URL created:', authorizeURL);
+
+    console.log('Attempting to send DM');
     await interaction.user.send(`Click this link to connect your Spotify account: ${authorizeURL}`);
+    console.log('DM sent successfully');
+
+    console.log('Attempting to edit reply');
     await interaction.editReply({
       content: 'I\'ve sent you a DM with the Spotify connection link!',
       ephemeral: true,
     });
+    console.log('Reply edited successfully');
   } catch (error) {
-    await interaction.editReply({
-      content: 'I couldn\'t send you a DM. Please make sure you have DMs enabled for this server.',
-      ephemeral: true,
-    });
+    console.error('Error in handleConnect:', error);
+    try {
+      console.log('Attempting to send error message');
+      await interaction.editReply({
+        content: 'I couldn\'t send you a DM. Please make sure you have DMs enabled for this server.',
+        ephemeral: true,
+      });
+      console.log('Error message sent successfully');
+    } catch (e) {
+      console.error('Error sending error message:', e);
+    }
   }
 }
 
