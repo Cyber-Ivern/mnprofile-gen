@@ -455,9 +455,31 @@ async function processProfile(interaction: any) {
   spotifyApi.setAccessToken(accessToken);
 
   try {
+    // Update status to show we're fetching tracks
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: '🎵 Fetching your top tracks...'
+      })
+    });
+
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
     
+    // Update status to show we're generating profile
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: '🤔 Analyzing your music taste...'
+      })
+    });
+
     // Format tracks for display
     const trackList = topTracks.body.items
       .map((track, index) => {
@@ -540,11 +562,33 @@ async function processImage(interaction: any) {
   spotifyApi.setAccessToken(accessToken);
 
   try {
+    // Update status to show we're fetching tracks
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: '🎵 Fetching your top tracks...'
+      })
+    });
+
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
     const trackList = topTracks.body.items
       .map(track => `${track.name} by ${track.artists[0].name}`)
       .join(', ');
+
+    // Update status to show we're generating prompt
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: '🎨 Creating an artistic prompt...'
+      })
+    });
 
     // Generate image prompt
     const completion = await openai.chat.completions.create({
@@ -565,6 +609,17 @@ async function processImage(interaction: any) {
     });
 
     const imagePrompt = completion.choices[0].message.content;
+
+    // Update status to show we're generating image
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: '🎨 Generating your music visualization... (this may take up to 30 seconds)'
+      })
+    });
 
     // Generate image using DALL-E
     const imageResponse = await openai.images.generate({
