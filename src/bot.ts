@@ -57,6 +57,22 @@ app.use(express.json());
 
 // Discord interaction verification
 app.post('/', async (req: Request, res: Response) => {
+  let responseSent = false;
+  
+  const sendResponse = (data: any) => {
+    if (!responseSent) {
+      responseSent = true;
+      return res.json(data);
+    }
+  };
+
+  const sendError = (status: number, message: string) => {
+    if (!responseSent) {
+      responseSent = true;
+      return res.status(status).send(message);
+    }
+  };
+
   console.log('Received request');
   console.log('Headers:', req.headers);
   console.log('Body:', req.body);
@@ -67,7 +83,7 @@ app.post('/', async (req: Request, res: Response) => {
 
   if (!signature || !timestamp) {
     console.log('Missing signature or timestamp');
-    return res.status(401).send('Missing signature or timestamp');
+    return sendError(401, 'Missing signature or timestamp');
   }
 
   try {
@@ -76,13 +92,13 @@ app.post('/', async (req: Request, res: Response) => {
     console.log('Verification result:', isValid);
 
     if (!isValid) {
-      return res.status(401).send('Invalid signature');
+      return sendError(401, 'Invalid signature');
     }
 
     // Handle the verification request
     if (req.body.type === 1) {
       console.log('Sending verification response');
-      return res.json({ type: 1 });
+      return sendResponse({ type: 1 });
     }
 
     // Handle the actual interaction
@@ -94,37 +110,57 @@ app.post('/', async (req: Request, res: Response) => {
       console.log('Command received:', commandName);
 
       try {
-        // Defer the reply immediately
-        await res.json({ type: 5 }); // Type 5 is DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-
+        let response;
         switch (commandName) {
           case 'connect':
-            await handleConnect(interaction);
+            response = await handleConnect(interaction);
             break;
           case 'profile':
-            await handleProfile(interaction);
+            response = await handleProfile(interaction);
             break;
           case 'tracks':
-            await handleTracks(interaction);
+            response = await handleTracks(interaction);
             break;
           case 'verify':
-            await handleVerify(interaction);
+            response = await handleVerify(interaction);
             break;
           case 'image':
-            await handleImage(interaction);
+            response = await handleImage(interaction);
             break;
           default:
             console.log('Unknown command:', commandName);
+            response = {
+              type: 4,
+              data: {
+                content: 'Unknown command',
+                flags: 64
+              }
+            };
         }
+        return sendResponse(response);
       } catch (error) {
         console.error('Error handling command:', error);
+        return sendResponse({
+          type: 4,
+          data: {
+            content: 'An error occurred while processing your command.',
+            flags: 64
+          }
+        });
       }
     }
 
-    return res.status(200).send('OK');
+    // If we get here, it's an unhandled interaction type
+    return sendResponse({
+      type: 4,
+      data: {
+        content: 'Unhandled interaction type',
+        flags: 64
+      }
+    });
   } catch (error) {
     console.error('Verification error:', error);
-    return res.status(401).send('Verification failed');
+    return sendError(401, 'Verification failed');
   }
 });
 
@@ -213,8 +249,7 @@ client.on('interactionCreate', async interaction => {
 // Command handlers
 async function handleConnect(interaction: any) {
   console.log('Connect command received');
-  console.log('User:', interaction.user.id);
-  console.log('Guild:', interaction.guildId);
+  console.log('Interaction data:', interaction);
 
   const scopes = [
     'user-top-read',
@@ -224,32 +259,34 @@ async function handleConnect(interaction: any) {
   
   try {
     console.log('Creating authorization URL');
-    const state = interaction.user.id;
+    const userId = interaction.member?.user?.id || interaction.user?.id;
+    console.log('User ID:', userId);
+    
+    if (!userId) {
+      throw new Error('Could not find user ID in interaction');
+    }
+
+    const state = userId;
     const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
     console.log('Authorization URL created:', authorizeURL);
 
-    console.log('Attempting to send DM');
-    await interaction.user.send(`Click this link to connect your Spotify account: ${authorizeURL}`);
-    console.log('DM sent successfully');
-
-    console.log('Attempting to edit reply');
-    await interaction.editReply({
-      content: 'I\'ve sent you a DM with the Spotify connection link!',
-      ephemeral: true,
-    });
-    console.log('Reply edited successfully');
+    // Since we can't send DMs through HTTP interactions, we'll just return the URL
+    return {
+      type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
+      data: {
+        content: `Click this link to connect your Spotify account: ${authorizeURL}`,
+        flags: 64 // EPHEMERAL
+      }
+    };
   } catch (error) {
     console.error('Error in handleConnect:', error);
-    try {
-      console.log('Attempting to send error message');
-      await interaction.editReply({
-        content: 'I couldn\'t send you a DM. Please make sure you have DMs enabled for this server.',
-        ephemeral: true,
-      });
-      console.log('Error message sent successfully');
-    } catch (e) {
-      console.error('Error sending error message:', e);
-    }
+    return {
+      type: 4,
+      data: {
+        content: 'An error occurred while processing your request.',
+        flags: 64
+      }
+    };
   }
 }
 
