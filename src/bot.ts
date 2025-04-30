@@ -117,6 +117,17 @@ app.post('/', async (req: Request, res: Response) => {
             break;
           case 'profile':
             response = await handleProfile(interaction);
+            // Start processing in the background
+            processProfile(interaction).then(updateResponse => {
+              // Send the update response to Discord
+              fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(updateResponse.data),
+              }).catch(console.error);
+            }).catch(console.error);
             break;
           case 'tracks':
             response = await handleTracks(interaction);
@@ -126,6 +137,17 @@ app.post('/', async (req: Request, res: Response) => {
             break;
           case 'image':
             response = await handleImage(interaction);
+            // Start processing in the background
+            processImage(interaction).then(updateResponse => {
+              // Send the update response to Discord
+              fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(updateResponse.data),
+              }).catch(console.error);
+            }).catch(console.error);
             break;
           default:
             console.log('Unknown command:', commandName);
@@ -270,11 +292,41 @@ async function handleConnect(interaction: any) {
     const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
     console.log('Authorization URL created:', authorizeURL);
 
-    // Since we can't send DMs through HTTP interactions, we'll just return the URL
+    // Create DM channel with the user
+    const dmResponse = await fetch(`https://discord.com/api/v10/users/@me/channels`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recipient_id: userId
+      })
+    });
+
+    if (!dmResponse.ok) {
+      throw new Error('Failed to create DM channel');
+    }
+
+    const dmChannel = await dmResponse.json();
+
+    // Send the authorization URL via DM
+    await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: `Click this link to connect your Spotify account: ${authorizeURL}`
+      })
+    });
+
+    // Return a response to the original interaction
     return {
-      type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
+      type: 4,
       data: {
-        content: `Click this link to connect your Spotify account: ${authorizeURL}`,
+        content: 'I\'ve sent you a DM with the Spotify authorization link!',
         flags: 64 // EPHEMERAL
       }
     };
@@ -283,7 +335,7 @@ async function handleConnect(interaction: any) {
     return {
       type: 4,
       data: {
-        content: 'An error occurred while processing your request.',
+        content: 'An error occurred while processing your request. Please make sure you have DMs enabled.',
         flags: 64
       }
     };
@@ -304,85 +356,13 @@ async function handleProfile(interaction: any) {
     };
   }
 
-  spotifyApi.setAccessToken(accessToken);
-
-  try {
-    // Fetch top tracks
-    const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
-    
-    // Format tracks for display
-    const trackList = topTracks.body.items
-      .map((track, index) => {
-        const artists = track.artists.map(artist => artist.name).join(', ');
-        return `${index + 1}. **${track.name}** - ${artists}`;
-      })
-      .join('\n');
-
-    // Generate profile with enhanced prompt
-    const completion = await openai.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: `You are a witty and insightful music critic who creates engaging profiles based on someone's top tracks. 
-          Focus on identifying patterns, genres, and musical preferences. 
-          Be specific about the artists and songs mentioned.
-          Keep the profile concise (2-3 paragraphs) and engaging.`,
-        },
-        {
-          role: 'user',
-          content: `Create a music nerd profile based on these top tracks: ${trackList}`,
-        },
-      ],
-      model: 'gpt-4',
-      temperature: 0.7,
-    });
-
-    const profile = completion.choices[0].message.content;
-
-    // Create rich embed
-    const embed = {
-      title: `🎵 ${interaction.member?.user?.username || interaction.user?.username}'s Music Nerd Profile`,
-      description: profile,
-      fields: [
-        {
-          name: '🎧 Top Tracks',
-          value: trackList
-        }
-      ],
-      color: 0x1DB954,
-      footer: {
-        text: 'Generated with Spotify & OpenAI'
-      },
-      timestamp: new Date().toISOString()
-    };
-
-    return {
-      type: 4,
-      data: {
-        embeds: [embed]
-      }
-    };
-  } catch (error: unknown) {
-    console.error('Profile generation error:', error);
-    
-    let errorMessage = 'An error occurred while generating your profile.';
-    if (error && typeof error === 'object' && 'statusCode' in error) {
-      const spotifyError = error as { statusCode: number };
-      if (spotifyError.statusCode === 401) {
-        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-      } else if (spotifyError.statusCode === 429) {
-        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
-      }
+  // Send a deferred response immediately
+  return {
+    type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+    data: {
+      flags: 64 // EPHEMERAL
     }
-
-    return {
-      type: 4,
-      data: {
-        content: errorMessage,
-        flags: 64
-      }
-    };
-  }
+  };
 }
 
 async function handleTracks(interaction: any) {
@@ -458,6 +438,105 @@ async function handleImage(interaction: any) {
     };
   }
 
+  // Send a deferred response immediately
+  return {
+    type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+    data: {
+      flags: 64 // EPHEMERAL
+    }
+  };
+}
+
+// Add new functions to handle the actual processing
+async function processProfile(interaction: any) {
+  const userId = interaction.member?.user?.id || interaction.user?.id;
+  const accessToken = userTokens.get(userId);
+
+  spotifyApi.setAccessToken(accessToken);
+
+  try {
+    // Fetch top tracks
+    const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
+    
+    // Format tracks for display
+    const trackList = topTracks.body.items
+      .map((track, index) => {
+        const artists = track.artists.map(artist => artist.name).join(', ');
+        return `${index + 1}. **${track.name}** - ${artists}`;
+      })
+      .join('\n');
+
+    // Generate profile with enhanced prompt
+    const completion = await openai.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: `You are a witty and insightful music critic who creates engaging profiles based on someone's top tracks. 
+          Focus on identifying patterns, genres, and musical preferences. 
+          Be specific about the artists and songs mentioned.
+          Keep the profile concise (2-3 paragraphs) and engaging.`,
+        },
+        {
+          role: 'user',
+          content: `Create a music nerd profile based on these top tracks: ${trackList}`,
+        },
+      ],
+      model: 'gpt-4',
+      temperature: 0.7,
+    });
+
+    const profile = completion.choices[0].message.content;
+
+    // Create rich embed
+    const embed = {
+      title: `🎵 ${interaction.member?.user?.username || interaction.user?.username}'s Music Nerd Profile`,
+      description: profile,
+      fields: [
+        {
+          name: '🎧 Top Tracks',
+          value: trackList
+        }
+      ],
+      color: 0x1DB954,
+      footer: {
+        text: 'Generated with Spotify & OpenAI'
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    return {
+      type: 7, // UPDATE_MESSAGE
+      data: {
+        embeds: [embed]
+      }
+    };
+  } catch (error: unknown) {
+    console.error('Profile generation error:', error);
+    
+    let errorMessage = 'An error occurred while generating your profile.';
+    if (error && typeof error === 'object' && 'statusCode' in error) {
+      const spotifyError = error as { statusCode: number };
+      if (spotifyError.statusCode === 401) {
+        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+      } else if (spotifyError.statusCode === 429) {
+        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+      }
+    }
+
+    return {
+      type: 7, // UPDATE_MESSAGE
+      data: {
+        content: errorMessage,
+        flags: 64
+      }
+    };
+  }
+}
+
+async function processImage(interaction: any) {
+  const userId = interaction.member?.user?.id || interaction.user?.id;
+  const accessToken = userTokens.get(userId);
+
   spotifyApi.setAccessToken(accessToken);
 
   try {
@@ -514,7 +593,7 @@ async function handleImage(interaction: any) {
     };
 
     return {
-      type: 4,
+      type: 7, // UPDATE_MESSAGE
       data: {
         embeds: [embed]
       }
@@ -533,7 +612,7 @@ async function handleImage(interaction: any) {
     }
 
     return {
-      type: 4,
+      type: 7, // UPDATE_MESSAGE
       data: {
         content: errorMessage,
         flags: 64
