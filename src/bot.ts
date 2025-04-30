@@ -477,27 +477,39 @@ async function handleImage(interaction: any) {
 // Add new functions to handle the actual processing
 async function processProfile(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log('Profile - User ID:', userId);
+  
   const accessToken = userTokens.get(userId);
+  console.log('Profile - Access Token exists:', !!accessToken);
 
   spotifyApi.setAccessToken(accessToken);
 
   try {
+    console.log('Profile - Fetching top tracks from Spotify...');
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
+    console.log('Profile - Spotify tracks received:', topTracks.body.items.length, 'tracks');
+    
     const tracks = topTracks.body.items.map(track => ({
       name: track.name,
       artist: track.artists[0].name
     }));
     const displayName = interaction.member?.user?.username || interaction.user?.username;
+    console.log('Profile - Prepared data:', { displayName, trackCount: tracks.length });
 
     // Call the web app's profile analysis endpoint
+    console.log('Profile - Sending request to analyze endpoint...');
     const response = await fetch('https://mnprofile-gen-five.vercel.app/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ displayName, tracks })
     });
+    console.log('Profile - Response status:', response.status);
     const data = await response.json();
+    console.log('Profile - Response data:', data);
+    
     if (!response.ok || !data.analysis) {
+      console.error('Profile - Error in response:', { status: response.status, data });
       throw new Error(data.error || 'Failed to generate profile');
     }
     const profile = data.analysis;
@@ -555,26 +567,38 @@ async function processProfile(interaction: any) {
 
 async function processImage(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log('Image - User ID:', userId);
+  
   const accessToken = userTokens.get(userId);
+  console.log('Image - Access Token exists:', !!accessToken);
 
   spotifyApi.setAccessToken(accessToken);
 
   try {
+    console.log('Image - Fetching top tracks from Spotify...');
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
+    console.log('Image - Spotify tracks received:', topTracks.body.items.length, 'tracks');
+    
     const tracks = topTracks.body.items.map(track => ({
       name: track.name,
       artist: track.artists[0].name
     }));
+    console.log('Image - Prepared tracks data:', tracks);
 
     // Call the web app's image generation endpoint
+    console.log('Image - Sending request to generate-image endpoint...');
     const response = await fetch('https://mnprofile-gen-five.vercel.app/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks })
     });
+    console.log('Image - Response status:', response.status);
     const data = await response.json();
+    console.log('Image - Response data:', data);
+    
     if (!response.ok || !data.imageUrl) {
+      console.error('Image - Error in response:', { status: response.status, data });
       throw new Error(data.error || 'Failed to generate image');
     }
     const imageUrl = data.imageUrl;
