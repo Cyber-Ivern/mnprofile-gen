@@ -56,8 +56,8 @@ app.use(cors());
 app.use(express.json());
 
 // Discord interaction verification
-app.post('/', (req: Request, res: Response) => {
-  console.log('Received verification request');
+app.post('/', async (req: Request, res: Response) => {
+  console.log('Received request');
   console.log('Headers:', req.headers);
   console.log('Body:', req.body);
 
@@ -71,7 +71,7 @@ app.post('/', (req: Request, res: Response) => {
   }
 
   try {
-    console.log('Verifying with public key:', process.env.DISCORD_PUBLIC_KEY);
+    console.log('Verifying request');
     const isValid = verifyKey(body, signature as string, timestamp as string, process.env.DISCORD_PUBLIC_KEY!);
     console.log('Verification result:', isValid);
 
@@ -83,6 +83,42 @@ app.post('/', (req: Request, res: Response) => {
     if (req.body.type === 1) {
       console.log('Sending verification response');
       return res.json({ type: 1 });
+    }
+
+    // Handle the actual interaction
+    console.log('Handling interaction:', req.body.type);
+    const interaction = req.body;
+
+    if (interaction.type === 2) { // Application Command
+      const commandName = interaction.data.name;
+      console.log('Command received:', commandName);
+
+      try {
+        // Defer the reply immediately
+        await res.json({ type: 5 }); // Type 5 is DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+
+        switch (commandName) {
+          case 'connect':
+            await handleConnect(interaction);
+            break;
+          case 'profile':
+            await handleProfile(interaction);
+            break;
+          case 'tracks':
+            await handleTracks(interaction);
+            break;
+          case 'verify':
+            await handleVerify(interaction);
+            break;
+          case 'image':
+            await handleImage(interaction);
+            break;
+          default:
+            console.log('Unknown command:', commandName);
+        }
+      } catch (error) {
+        console.error('Error handling command:', error);
+      }
     }
 
     return res.status(200).send('OK');
