@@ -486,8 +486,13 @@ async function processProfile(interaction: any) {
 
   try {
     console.log('Profile - Fetching top tracks from Spotify...');
-    // Fetch top tracks
-    const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
+    // Fetch top tracks with retry logic
+    const topTracks = await retryOperation(
+      () => spotifyApi.getMyTopTracks({ limit: 10 }),
+      3,
+      1000
+    );
+    
     console.log('Profile - Spotify tracks received:', topTracks.body.items.length, 'tracks');
     
     const tracks = topTracks.body.items.map(track => ({
@@ -497,22 +502,43 @@ async function processProfile(interaction: any) {
     const displayName = interaction.member?.user?.username || interaction.user?.username;
     console.log('Profile - Prepared data:', { displayName, trackCount: tracks.length });
 
-    // Call the web app's profile analysis endpoint
-    console.log('Profile - Sending request to analyze endpoint...');
-    const response = await fetch('https://mnprofile-gen-five.vercel.app/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ displayName, tracks })
-    });
-    console.log('Profile - Response status:', response.status);
-    const data = await response.json();
-    console.log('Profile - Response data:', data);
+    // Generate profile analysis using OpenAI
+    console.log('Profile - Generating analysis with OpenAI...');
+    const prompt = `Analyze the following music taste and create a fun, engaging profile description. 
+    The person's name is ${displayName} and here are their top tracks:
+    ${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}
     
-    if (!response.ok || !data.analysis) {
-      console.error('Profile - Error in response:', { status: response.status, data });
-      throw new Error(data.error || 'Failed to generate profile');
-    }
-    const profile = data.analysis;
+    Create a profile that:
+    1. Identifies their music taste and preferences
+    2. Makes observations about their listening habits
+    3. Uses a fun, engaging tone
+    4. Is 2-3 paragraphs long
+    5. Includes some emojis
+    
+    Format the response as a single paragraph.`;
+
+    const completion = await retryOperation(
+      () => openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [
+          {
+            role: "system",
+            content: "You are a music analysis expert who creates engaging, fun profiles based on people's music taste."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      }),
+      3,
+      1000
+    );
+
+    const profile = completion.choices[0].message.content;
+    console.log('Profile - OpenAI response received');
 
     // Format tracks for display
     const trackList = tracks
@@ -546,12 +572,14 @@ async function processProfile(interaction: any) {
     console.error('Profile generation error:', error);
     
     let errorMessage = 'An error occurred while generating your profile.';
-    if (error && typeof error === 'object' && 'statusCode' in error) {
-      const spotifyError = error as { statusCode: number };
-      if (spotifyError.statusCode === 401) {
-        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-      } else if (spotifyError.statusCode === 429) {
-        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+    if (error && typeof error === 'object') {
+      if ('statusCode' in error) {
+        const spotifyError = error as { statusCode: number };
+        if (spotifyError.statusCode === 401) {
+          errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+        } else if (spotifyError.statusCode === 429) {
+          errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+        }
       }
     }
 
@@ -606,8 +634,8 @@ async function processImage(interaction: any) {
     // Fetch top tracks with retry logic
     const topTracks = await retryOperation(
       () => spotifyApi.getMyTopTracks({ limit: 5 }),
-      3,  // max retries
-      1000 // initial delay
+      3,
+      1000
     );
     
     console.log('Image - Spotify tracks received:', topTracks.body.items.length, 'tracks');
@@ -618,32 +646,63 @@ async function processImage(interaction: any) {
     }));
     console.log('Image - Prepared tracks data:', tracks);
 
-    // Call the web app's image generation endpoint with retry logic
-    console.log('Image - Sending request to generate-image endpoint...');
-    const response = await retryOperation(
-      () => fetch('https://mnprofile-gen-five.vercel.app/api/generate-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tracks })
+    // Generate image prompt using OpenAI
+    console.log('Image - Generating image prompt with OpenAI...');
+    const prompt = `Create a detailed prompt for DALL-E to generate an image that represents this music taste:
+    ${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}
+    
+    The prompt should:
+    1. Be highly detailed and specific
+    2. Capture the mood and style of the music
+    3. Be suitable for DALL-E image generation
+    4. Be 1-2 sentences long
+    5. Focus on creating a cohesive visual representation`;
+
+    const completion = await retryOperation(
+      () => openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert at creating detailed image generation prompts that capture the essence of music."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 200
       }),
-      3,  // max retries
-      1000 // initial delay
+      3,
+      1000
     );
-    
-    console.log('Image - Response status:', response.status);
-    const data = await response.json();
-    console.log('Image - Response data:', data);
-    
-    if (!response.ok || !data.imageUrl) {
-      console.error('Image - Error in response:', { status: response.status, data });
-      throw new Error(data.error || 'Failed to generate image');
-    }
-    const imageUrl = data.imageUrl;
+
+    const imagePrompt = completion.choices[0].message.content;
+    console.log('Image - Generated prompt:', imagePrompt);
+
+    // Generate image using DALL-E
+    console.log('Image - Generating image with DALL-E...');
+    const imageResponse = await retryOperation(
+      () => openai.images.generate({
+        model: "dall-e-3",
+        prompt: imagePrompt!,
+        n: 1,
+        size: "1024x1024",
+        quality: "standard",
+        style: "vivid"
+      }),
+      3,
+      1000
+    );
+
+    const imageUrl = imageResponse.data[0].url;
+    console.log('Image - DALL-E image generated');
 
     // Create rich embed
     const embed = {
       title: `🎨 ${interaction.member?.user?.username || interaction.user?.username}'s Music Visualization`,
-      description: `*Generated by your music taste*`,
+      description: `*Generated by your music taste*\n\n**Prompt:** ${imagePrompt}`,
       image: {
         url: imageUrl || ''
       },
@@ -672,8 +731,6 @@ async function processImage(interaction: any) {
         } else if (spotifyError.statusCode === 429) {
           errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
         }
-      } else if ('code' in error && (error as any).code === 'ECONNRESET') {
-        errorMessage = 'Connection to Spotify was interrupted. Please try the command again.';
       }
     }
 
