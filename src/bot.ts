@@ -473,7 +473,7 @@ async function processProfile(interaction: any) {
 
   try {
     // Update status to show we're fetching tracks
-    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+    const fetchTracksRes = await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -482,12 +482,16 @@ async function processProfile(interaction: any) {
         content: '🎵 Fetching your top tracks...'
       })
     });
+    if (!fetchTracksRes.ok) {
+      const errText = await fetchTracksRes.text();
+      console.error('Failed to update progress (fetching tracks):', fetchTracksRes.status, errText);
+    }
 
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
     
     // Update status to show we're generating profile
-    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+    const analyzingRes = await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -496,6 +500,10 @@ async function processProfile(interaction: any) {
         content: '🤔 Analyzing your music taste...'
       })
     });
+    if (!analyzingRes.ok) {
+      const errText = await analyzingRes.text();
+      console.error('Failed to update progress (analyzing):', analyzingRes.status, errText);
+    }
 
     // Format tracks for display
     const trackList = topTracks.body.items
@@ -580,7 +588,7 @@ async function processImage(interaction: any) {
 
   try {
     // Update status to show we're fetching tracks
-    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+    const fetchTracksRes = await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -589,6 +597,10 @@ async function processImage(interaction: any) {
         content: '🎵 Fetching your top tracks...'
       })
     });
+    if (!fetchTracksRes.ok) {
+      const errText = await fetchTracksRes.text();
+      console.error('Failed to update progress (fetching tracks):', fetchTracksRes.status, errText);
+    }
 
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
@@ -597,7 +609,7 @@ async function processImage(interaction: any) {
       .join(', ');
 
     // Update status to show we're generating prompt
-    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+    const creatingPromptRes = await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
@@ -606,6 +618,10 @@ async function processImage(interaction: any) {
         content: '🎨 Creating an artistic prompt...'
       })
     });
+    if (!creatingPromptRes.ok) {
+      const errText = await creatingPromptRes.text();
+      console.error('Failed to update progress (creating prompt):', creatingPromptRes.status, errText);
+    }
 
     // Generate image prompt
     const completion = await openai.chat.completions.create({
