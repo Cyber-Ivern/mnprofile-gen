@@ -472,39 +472,9 @@ async function processProfile(interaction: any) {
   spotifyApi.setAccessToken(accessToken);
 
   try {
-    // Update status to show we're fetching tracks
-    const fetchTracksRes = await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: '🎵 Fetching your top tracks...'
-      })
-    });
-    if (!fetchTracksRes.ok) {
-      const errText = await fetchTracksRes.text();
-      console.error('Failed to update progress (fetching tracks):', fetchTracksRes.status, errText);
-    }
-
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
     
-    // Update status to show we're generating profile
-    const analyzingRes = await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: '🤔 Analyzing your music taste...'
-      })
-    });
-    if (!analyzingRes.ok) {
-      const errText = await analyzingRes.text();
-      console.error('Failed to update progress (analyzing):', analyzingRes.status, errText);
-    }
-
     // Format tracks for display
     const trackList = topTracks.body.items
       .map((track, index) => {
@@ -587,41 +557,11 @@ async function processImage(interaction: any) {
   spotifyApi.setAccessToken(accessToken);
 
   try {
-    // Update status to show we're fetching tracks
-    const fetchTracksRes = await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: '🎵 Fetching your top tracks...'
-      })
-    });
-    if (!fetchTracksRes.ok) {
-      const errText = await fetchTracksRes.text();
-      console.error('Failed to update progress (fetching tracks):', fetchTracksRes.status, errText);
-    }
-
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
     const trackList = topTracks.body.items
       .map(track => `${track.name} by ${track.artists[0].name}`)
       .join(', ');
-
-    // Update status to show we're generating prompt
-    const creatingPromptRes = await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: '🎨 Creating an artistic prompt...'
-      })
-    });
-    if (!creatingPromptRes.ok) {
-      const errText = await creatingPromptRes.text();
-      console.error('Failed to update progress (creating prompt):', creatingPromptRes.status, errText);
-    }
 
     // Generate image prompt
     const completion = await openai.chat.completions.create({
@@ -642,17 +582,6 @@ async function processImage(interaction: any) {
     });
 
     const imagePrompt = completion.choices[0].message.content;
-
-    // Update status to show we're generating image
-    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: '🎨 Generating your music visualization... (this may take up to 30 seconds)'
-      })
-    });
 
     // Generate image using DALL-E
     const imageResponse = await openai.images.generate({
