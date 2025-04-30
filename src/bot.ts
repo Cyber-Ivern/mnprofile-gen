@@ -276,8 +276,7 @@ async function handleConnect(interaction: any) {
   const scopes = [
     'user-top-read',
     'user-read-private',
-    'user-read-email',
-    'offline-access'
+    'user-read-email'
   ];
   
   try {
@@ -368,7 +367,7 @@ async function handleProfile(interaction: any) {
 
 async function handleTracks(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
-  let accessToken = userTokens.get(userId);
+  const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
     return {
@@ -383,7 +382,17 @@ async function handleTracks(interaction: any) {
   try {
     spotifyApi.setAccessToken(accessToken);
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
-    
+
+    if (!topTracks.body.items.length) {
+      return {
+        type: 4,
+        data: {
+          content: 'No top tracks found for your Spotify account.',
+          flags: 64
+        }
+      };
+    }
+
     const embed = {
       title: `${interaction.member?.user?.username || interaction.user?.username}'s Top Tracks`,
       description: topTracks.body.items
@@ -401,41 +410,10 @@ async function handleTracks(interaction: any) {
     };
   } catch (error: any) {
     console.error('Tracks error:', error);
-    
-    // If token expired, try to refresh it
-    if (error.statusCode === 401 || error.statusCode === 403) {
-      const refreshed = await refreshSpotifyToken(userId);
-      if (refreshed) {
-        // Retry the request with new token
-        accessToken = userTokens.get(userId);
-        spotifyApi.setAccessToken(accessToken!);
-        try {
-          const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
-          
-          const embed = {
-            title: `${interaction.member?.user?.username || interaction.user?.username}'s Top Tracks`,
-            description: topTracks.body.items
-              .map((track, index) => `${index + 1}. ${track.name} - ${track.artists[0].name}`)
-              .join('\n'),
-            color: 0x1DB954,
-            timestamp: new Date().toISOString()
-          };
-
-          return {
-            type: 4,
-            data: {
-              embeds: [embed]
-            }
-          };
-        } catch (retryError) {
-          console.error('Retry error:', retryError);
-        }
-      }
-    }
 
     let errorMessage = 'An error occurred while fetching your top tracks.';
     if (error.statusCode === 401 || error.statusCode === 403) {
-      errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+      errorMessage = 'Your Spotify session has expired or you did not grant the required permissions. Please reconnect using /connect and approve all requested permissions.';
     } else if (error.statusCode === 429) {
       errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
     }
