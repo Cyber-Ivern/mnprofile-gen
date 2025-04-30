@@ -133,24 +133,44 @@ const rest = new REST({ version: '10' }).setToken(requiredEnvVars.DISCORD_TOKEN!
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
-  const { commandName } = interaction;
+  try {
+    // Defer the reply immediately to prevent timeout
+    await interaction.deferReply();
 
-  switch (commandName) {
-    case 'connect':
-      await handleConnect(interaction);
-      break;
-    case 'profile':
-      await handleProfile(interaction);
-      break;
-    case 'tracks':
-      await handleTracks(interaction);
-      break;
-    case 'verify':
-      await handleVerify(interaction);
-      break;
-    case 'image':
-      await handleImage(interaction);
-      break;
+    const { commandName } = interaction;
+
+    switch (commandName) {
+      case 'connect':
+        await handleConnect(interaction);
+        break;
+      case 'profile':
+        await handleProfile(interaction);
+        break;
+      case 'tracks':
+        await handleTracks(interaction);
+        break;
+      case 'verify':
+        await handleVerify(interaction);
+        break;
+      case 'image':
+        await handleImage(interaction);
+        break;
+      default:
+        await interaction.editReply('Unknown command');
+    }
+  } catch (error) {
+    console.error('Command error:', error);
+    try {
+      // Try to edit the deferred reply
+      if (interaction.deferred) {
+        await interaction.editReply('An error occurred while processing your command.');
+      } else {
+        // If we couldn't defer, try to reply
+        await interaction.reply({ content: 'An error occurred while processing your command.', ephemeral: true });
+      }
+    } catch (e) {
+      console.error('Error handling command error:', e);
+    }
   }
 });
 
@@ -162,18 +182,17 @@ async function handleConnect(interaction: any) {
     'user-read-email'
   ];
   
-  // Generate a unique state parameter for security
   const state = interaction.user.id;
   const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
   
   try {
     await interaction.user.send(`Click this link to connect your Spotify account: ${authorizeURL}`);
-    await interaction.reply({
+    await interaction.editReply({
       content: 'I\'ve sent you a DM with the Spotify connection link!',
       ephemeral: true,
     });
   } catch (error) {
-    await interaction.reply({
+    await interaction.editReply({
       content: 'I couldn\'t send you a DM. Please make sure you have DMs enabled for this server.',
       ephemeral: true,
     });
@@ -418,6 +437,11 @@ app.get('/api/auth/callback', async (req, res) => {
     console.error(error);
     res.status(500).send('An error occurred during authentication.');
   }
+});
+
+// Add a health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
 });
 
 // Start the server
