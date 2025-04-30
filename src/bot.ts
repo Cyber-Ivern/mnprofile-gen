@@ -484,39 +484,32 @@ async function processProfile(interaction: any) {
   try {
     // Fetch top tracks
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
-    
-    // Format tracks for display
-    const trackList = topTracks.body.items
-      .map((track, index) => {
-        const artists = track.artists.map(artist => artist.name).join(', ');
-        return `${index + 1}. **${track.name}** - ${artists}`;
-      })
-      .join('\n');
+    const tracks = topTracks.body.items.map(track => ({
+      name: track.name,
+      artist: track.artists[0].name
+    }));
+    const displayName = interaction.member?.user?.username || interaction.user?.username;
 
-    // Generate profile with enhanced prompt
-    const completion = await openai.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: `You are a witty and insightful music critic who creates engaging profiles based on someone's top tracks. 
-          Focus on identifying patterns, genres, and musical preferences. 
-          Be specific about the artists and songs mentioned.
-          Keep the profile concise (2-3 paragraphs) and engaging.`,
-        },
-        {
-          role: 'user',
-          content: `Create a music nerd profile based on these top tracks: ${trackList}`,
-        },
-      ],
-      model: 'gpt-4',
-      temperature: 0.7,
+    // Call the web app's profile analysis endpoint
+    const response = await fetch('https://mnprofile-gen.vercel.app/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName, tracks })
     });
+    const data = await response.json();
+    if (!response.ok || !data.analysis) {
+      throw new Error(data.error || 'Failed to generate profile');
+    }
+    const profile = data.analysis;
 
-    const profile = completion.choices[0].message.content;
+    // Format tracks for display
+    const trackList = tracks
+      .map((track, index) => `${index + 1}. **${track.name}** - ${track.artist}`)
+      .join('\n');
 
     // Create rich embed
     const embed = {
-      title: `🎵 ${interaction.member?.user?.username || interaction.user?.username}'s Music Nerd Profile`,
+      title: `🎵 ${displayName}'s Music Nerd Profile`,
       description: profile,
       fields: [
         {
@@ -575,7 +568,7 @@ async function processImage(interaction: any) {
     }));
 
     // Call the web app's image generation endpoint
-    const response = await fetch('https://YOUR_WEB_APP_DOMAIN/api/generate-image', {
+    const response = await fetch('https://mnprofile-gen.vercel.app/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks })
