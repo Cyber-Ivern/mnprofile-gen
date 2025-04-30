@@ -59,8 +59,21 @@ function parseCookies(cookieString: string): { spotify_tracks?: Track[] } {
 export async function POST(request: Request) {
   console.log('Starting image generation request');
   try {
-    const cookies = parseCookies(request.headers.get('cookie') || '');
-    const tracks = cookies.spotify_tracks || [];
+    let tracks = [];
+    // Try to get tracks from JSON body
+    try {
+      const body = await request.json();
+      if (body && Array.isArray(body.tracks) && body.tracks.length > 0) {
+        tracks = body.tracks;
+      }
+    } catch (e) {
+      // Ignore JSON parse errors, fallback to cookies
+    }
+    // If not in body, try cookies
+    if (!tracks.length) {
+      const cookies = parseCookies(request.headers.get('cookie') || '');
+      tracks = cookies.spotify_tracks || [];
+    }
 
     console.log('Image generation configuration:', {
       tracksCount: tracks.length,
@@ -68,7 +81,7 @@ export async function POST(request: Request) {
     });
 
     if (!tracks.length) {
-      console.warn('No tracks found in cookies');
+      console.warn('No tracks found in request');
       return NextResponse.json({ error: 'No tracks found' }, { status: 400 });
     }
 
@@ -82,7 +95,7 @@ export async function POST(request: Request) {
     });
 
     // Generate image
-    const imagePrompt = `Generate an image of college me in my dorm bedroom. I'm wearing fan clothing and accessories, and I'm listening intently to music. The room is cluttered yet tastefully filled with CDs, records, posters, books, and other memorabilia and merch that reflect my obsessiveness with the music style, national origin, and aesthetic of the musicians who made these tracks: ${tracks.map(track => `${track.name} by ${track.artist}`).join(', ')}`;
+    const imagePrompt = `Generate an image of college me in my dorm bedroom. I'm wearing fan clothing and accessories, and I'm listening intently to music. The room is cluttered yet tastefully filled with CDs, records, posters, books, and other memorabilia and merch that reflect my obsessiveness with the music style, national origin, and aesthetic of the musicians who made these tracks: ${tracks.map((track: { name: string; artist: string }) => `${track.name} by ${track.artist}`).join(', ')}`;
 
     console.log('Starting OpenAI image generation:', {
       promptLength: imagePrompt.length,
