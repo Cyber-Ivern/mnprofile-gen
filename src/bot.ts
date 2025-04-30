@@ -491,7 +491,7 @@ async function processProfile(interaction: any) {
     const displayName = interaction.member?.user?.username || interaction.user?.username;
 
     // Call the web app's profile analysis endpoint
-    const response = await fetch('https://mnprofile-gen.vercel.app/api/analyze', {
+    const response = await fetch('https://mnprofile-gen-five.vercel.app/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ displayName, tracks })
@@ -568,7 +568,7 @@ async function processImage(interaction: any) {
     }));
 
     // Call the web app's image generation endpoint
-    const response = await fetch('https://mnprofile-gen.vercel.app/api/generate-image', {
+    const response = await fetch('https://mnprofile-gen-five.vercel.app/api/generate-image', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tracks })
