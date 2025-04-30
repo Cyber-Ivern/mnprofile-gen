@@ -291,19 +291,18 @@ async function handleConnect(interaction: any) {
 }
 
 async function handleProfile(interaction: any) {
-  const userId = interaction.user.id;
+  const userId = interaction.member?.user?.id || interaction.user?.id;
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
-    await interaction.reply({
-      content: 'Please connect your Spotify account first using /connect',
-      ephemeral: true,
-    });
-    return;
+    return {
+      type: 4,
+      data: {
+        content: 'Please connect your Spotify account first using /connect',
+        flags: 64
+      }
+    };
   }
-
-  // Show typing indicator
-  await interaction.deferReply();
 
   spotifyApi.setAccessToken(accessToken);
 
@@ -341,17 +340,28 @@ async function handleProfile(interaction: any) {
     const profile = completion.choices[0].message.content;
 
     // Create rich embed
-    const embed = new EmbedBuilder()
-      .setTitle(`🎵 ${interaction.user.username}'s Music Nerd Profile`)
-      .setDescription(profile)
-      .addFields(
-        { name: '🎧 Top Tracks', value: trackList }
-      )
-      .setColor('#1DB954')
-      .setFooter({ text: 'Generated with Spotify & OpenAI' })
-      .setTimestamp();
+    const embed = {
+      title: `🎵 ${interaction.member?.user?.username || interaction.user?.username}'s Music Nerd Profile`,
+      description: profile,
+      fields: [
+        {
+          name: '🎧 Top Tracks',
+          value: trackList
+        }
+      ],
+      color: 0x1DB954,
+      footer: {
+        text: 'Generated with Spotify & OpenAI'
+      },
+      timestamp: new Date().toISOString()
+    };
 
-    await interaction.editReply({ embeds: [embed] });
+    return {
+      type: 4,
+      data: {
+        embeds: [embed]
+      }
+    };
   } catch (error: unknown) {
     console.error('Profile generation error:', error);
     
@@ -365,23 +375,28 @@ async function handleProfile(interaction: any) {
       }
     }
 
-    await interaction.editReply({
-      content: errorMessage,
-      ephemeral: true,
-    });
+    return {
+      type: 4,
+      data: {
+        content: errorMessage,
+        flags: 64
+      }
+    };
   }
 }
 
 async function handleTracks(interaction: any) {
-  const userId = interaction.user.id;
+  const userId = interaction.member?.user?.id || interaction.user?.id;
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
-    await interaction.reply({
-      content: 'Please connect your Spotify account first using /connect',
-      ephemeral: true,
-    });
-    return;
+    return {
+      type: 4,
+      data: {
+        content: 'Please connect your Spotify account first using /connect',
+        flags: 64
+      }
+    };
   }
 
   spotifyApi.setAccessToken(accessToken);
@@ -389,57 +404,59 @@ async function handleTracks(interaction: any) {
   try {
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
     
-    const embed = new EmbedBuilder()
-      .setTitle(`${interaction.user.username}'s Top Tracks`)
-      .setDescription(
-        topTracks.body.items
-          .map((track, index) => `${index + 1}. ${track.name} - ${track.artists[0].name}`)
-          .join('\n')
-      )
-      .setColor('#1DB954')
-      .setTimestamp();
+    const embed = {
+      title: `${interaction.member?.user?.username || interaction.user?.username}'s Top Tracks`,
+      description: topTracks.body.items
+        .map((track, index) => `${index + 1}. ${track.name} - ${track.artists[0].name}`)
+        .join('\n'),
+      color: 0x1DB954,
+      timestamp: new Date().toISOString()
+    };
 
-    await interaction.reply({ embeds: [embed] });
+    return {
+      type: 4,
+      data: {
+        embeds: [embed]
+      }
+    };
   } catch (error) {
-    console.error(error);
-    await interaction.reply({
-      content: 'An error occurred while fetching your top tracks.',
-      ephemeral: true,
-    });
+    console.error('Tracks error:', error);
+    return {
+      type: 4,
+      data: {
+        content: 'An error occurred while fetching your top tracks.',
+        flags: 64
+      }
+    };
   }
 }
 
 async function handleVerify(interaction: any) {
-  const userId = interaction.user.id;
+  const userId = interaction.member?.user?.id || interaction.user?.id;
   const isConnected = userTokens.has(userId);
 
-  if (isConnected) {
-    await interaction.reply({
-      content: '✅ Your Spotify account is connected!',
-      ephemeral: true,
-    });
-  } else {
-    await interaction.reply({
-      content: '❌ Your Spotify account is not connected. Use /connect to link it.',
-      ephemeral: true,
-    });
-  }
+  return {
+    type: 4,
+    data: {
+      content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.',
+      flags: 64
+    }
+  };
 }
 
 async function handleImage(interaction: any) {
-  const userId = interaction.user.id;
+  const userId = interaction.member?.user?.id || interaction.user?.id;
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
-    await interaction.reply({
-      content: 'Please connect your Spotify account first using /connect',
-      ephemeral: true,
-    });
-    return;
+    return {
+      type: 4,
+      data: {
+        content: 'Please connect your Spotify account first using /connect',
+        flags: 64
+      }
+    };
   }
-
-  // Show typing indicator
-  await interaction.deferReply();
 
   spotifyApi.setAccessToken(accessToken);
 
@@ -483,15 +500,25 @@ async function handleImage(interaction: any) {
     const imageUrl = imageResponse.data[0].url;
 
     // Create rich embed
-    const embed = new EmbedBuilder()
-      .setTitle(`🎨 ${interaction.user.username}'s Music Visualization`)
-      .setDescription(`*"${imagePrompt}"*`)
-      .setImage(imageUrl || '')
-      .setColor('#1DB954')
-      .setFooter({ text: 'Generated with Spotify & OpenAI DALL-E' })
-      .setTimestamp();
+    const embed = {
+      title: `🎨 ${interaction.member?.user?.username || interaction.user?.username}'s Music Visualization`,
+      description: `*"${imagePrompt}"*`,
+      image: {
+        url: imageUrl || ''
+      },
+      color: 0x1DB954,
+      footer: {
+        text: 'Generated with Spotify & OpenAI DALL-E'
+      },
+      timestamp: new Date().toISOString()
+    };
 
-    await interaction.editReply({ embeds: [embed] });
+    return {
+      type: 4,
+      data: {
+        embeds: [embed]
+      }
+    };
   } catch (error: unknown) {
     console.error('Image generation error:', error);
     
@@ -505,10 +532,13 @@ async function handleImage(interaction: any) {
       }
     }
 
-    await interaction.editReply({
-      content: errorMessage,
-      ephemeral: true,
-    });
+    return {
+      type: 4,
+      data: {
+        content: errorMessage,
+        flags: 64
+      }
+    };
   }
 }
 
