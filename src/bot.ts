@@ -55,6 +55,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Add this near the top with other global variables
+const userTracksCache = new Map<string, { tracks: any[], timestamp: number }>();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 // Discord interaction verification
 app.post('/', async (req: Request, res: Response) => {
   let responseSent = false;
@@ -354,25 +358,148 @@ async function handleConnect(interaction: any) {
 
 async function handleProfile(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log('Profile - User ID:', userId);
+  
   const accessToken = userTokens.get(userId);
+  console.log('Profile - Access Token exists:', !!accessToken);
 
-  if (!accessToken) {
+  try {
+    // Check cache first
+    const cachedData = userTracksCache.get(userId);
+    let tracks;
+    
+    if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
+      console.log('Profile - Using cached tracks data');
+      tracks = cachedData.tracks.map(track => ({
+        name: track.name,
+        artist: track.artists[0].name
+      }));
+    } else {
+      console.log('Profile - Cache miss, fetching from Spotify...');
+      spotifyApi.setAccessToken(accessToken);
+      const topTracks = await retryOperation(
+        () => spotifyApi.getMyTopTracks({ limit: 10 }),
+        3,
+        1000
+      );
+      
+      tracks = topTracks.body.items.map(track => ({
+        name: track.name,
+        artist: track.artists[0].name
+      }));
+      
+      // Update cache
+      userTracksCache.set(userId, {
+        tracks: topTracks.body.items,
+        timestamp: Date.now()
+      });
+    }
+
+    const displayName = interaction.member?.user?.username || interaction.user?.username;
+    console.log('Profile - Prepared data:', { displayName, trackCount: tracks.length });
+
+    // Format tracks for display
+    const trackList = tracks
+      .map((track, index) => `${index + 1}. **${track.name}** - ${track.artist}`)
+      .join('\n');
+
+    // Generate profile analysis using OpenAI
+    console.log('Profile - Generating analysis with OpenAI...');
+    const completion = await retryOperation(
+      () => openai.chat.completions.create({
+        model: "gpt-4",
+        messages: [
+          {
+            role: "system",
+            content: `You are a witty and insightful music critic who creates engaging profiles based on someone's top tracks. 
+            Focus on identifying patterns, genres, and musical preferences. 
+            Be specific about the artists and songs mentioned.
+            Keep the profile concise (2-3 paragraphs) and engaging.`
+          },
+          {
+            role: "user",
+            content: `Create a music nerd profile based on these top tracks: ${trackList}`
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 500
+      }),
+      3,
+      1000
+    );
+
+    const profile = completion.choices[0].message.content;
+    console.log('Profile - OpenAI response received');
+
+    // Create rich embed
+    const embed = {
+      title: `🎵 ${displayName}'s Music Nerd Profile`,
+      description: profile,
+      fields: [
+        {
+          name: '🎧 Top Tracks',
+          value: trackList
+        }
+      ],
+      color: 0x1DB954,
+      footer: {
+        text: 'Generated with Spotify & OpenAI'
+      },
+      timestamp: new Date().toISOString()
+    };
+
+    // Update the original message using webhook
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        embeds: [embed]
+      })
+    });
+
     return {
-      type: 4,
+      type: 7, // UPDATE_MESSAGE
       data: {
-        content: 'Please connect your Spotify account first using /connect',
+        embeds: [embed]
+      }
+    };
+  } catch (error: unknown) {
+    console.error('Profile generation error:', error);
+    
+    let errorMessage = 'An error occurred while generating your profile.';
+    if (error && typeof error === 'object') {
+      if ('statusCode' in error) {
+        const spotifyError = error as { statusCode: number };
+        if (spotifyError.statusCode === 401) {
+          errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+        } else if (spotifyError.statusCode === 429) {
+          errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+        }
+      }
+    }
+
+    // Update the original message with error
+    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        content: errorMessage,
+        flags: 64
+      })
+    });
+
+    return {
+      type: 7, // UPDATE_MESSAGE
+      data: {
+        content: errorMessage,
         flags: 64
       }
     };
   }
-
-  // Send a deferred response immediately
-  return {
-    type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-    data: {
-      flags: 64 // EPHEMERAL
-    }
-  };
 }
 
 async function handleTracks(interaction: any) {
@@ -402,6 +529,12 @@ async function handleTracks(interaction: any) {
         }
       };
     }
+
+    // Store tracks in cache
+    userTracksCache.set(userId, {
+      tracks: topTracks.body.items,
+      timestamp: Date.now()
+    });
 
     const embed = {
       title: `${interaction.member?.user?.username || interaction.user?.username}'s Top Tracks`,
