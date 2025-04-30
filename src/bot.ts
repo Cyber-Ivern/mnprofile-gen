@@ -276,7 +276,8 @@ async function handleConnect(interaction: any) {
   const scopes = [
     'user-top-read',
     'user-read-private',
-    'user-read-email'
+    'user-read-email',
+    'offline-access'
   ];
   
   try {
@@ -367,7 +368,7 @@ async function handleProfile(interaction: any) {
 
 async function handleTracks(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
-  const accessToken = userTokens.get(userId);
+  let accessToken = userTokens.get(userId);
 
   if (!accessToken) {
     return {
@@ -379,9 +380,8 @@ async function handleTracks(interaction: any) {
     };
   }
 
-  spotifyApi.setAccessToken(accessToken);
-
   try {
+    spotifyApi.setAccessToken(accessToken);
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
     
     const embed = {
@@ -399,12 +399,51 @@ async function handleTracks(interaction: any) {
         embeds: [embed]
       }
     };
-  } catch (error) {
+  } catch (error: any) {
     console.error('Tracks error:', error);
+    
+    // If token expired, try to refresh it
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      const refreshed = await refreshSpotifyToken(userId);
+      if (refreshed) {
+        // Retry the request with new token
+        accessToken = userTokens.get(userId);
+        spotifyApi.setAccessToken(accessToken!);
+        try {
+          const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
+          
+          const embed = {
+            title: `${interaction.member?.user?.username || interaction.user?.username}'s Top Tracks`,
+            description: topTracks.body.items
+              .map((track, index) => `${index + 1}. ${track.name} - ${track.artists[0].name}`)
+              .join('\n'),
+            color: 0x1DB954,
+            timestamp: new Date().toISOString()
+          };
+
+          return {
+            type: 4,
+            data: {
+              embeds: [embed]
+            }
+          };
+        } catch (retryError) {
+          console.error('Retry error:', retryError);
+        }
+      }
+    }
+
+    let errorMessage = 'An error occurred while fetching your top tracks.';
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+    } else if (error.statusCode === 429) {
+      errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+    }
+
     return {
       type: 4,
       data: {
-        content: 'An error occurred while fetching your top tracks.',
+        content: errorMessage,
         flags: 64
       }
     };
@@ -676,16 +715,38 @@ async function processImage(interaction: any) {
   }
 }
 
-// OAuth callback endpoint
+// Add token refresh function
+async function refreshSpotifyToken(userId: string): Promise<boolean> {
+  try {
+    const refreshToken = userTokens.get(`${userId}_refresh`);
+    if (!refreshToken) {
+      return false;
+    }
+
+    spotifyApi.setRefreshToken(refreshToken);
+    const data = await spotifyApi.refreshAccessToken();
+    const newAccessToken = data.body.access_token;
+    
+    // Store the new access token
+    userTokens.set(userId, newAccessToken);
+    return true;
+  } catch (error) {
+    console.error('Error refreshing token:', error);
+    return false;
+  }
+}
+
+// Update the OAuth callback to store refresh token
 app.get('/api/auth/callback', async (req, res) => {
   const { code, state } = req.query;
   
   try {
     const data = await spotifyApi.authorizationCodeGrant(code as string);
-    const { access_token } = data.body;
+    const { access_token, refresh_token } = data.body;
     
-    // Store the token (in production, use a proper database)
+    // Store both tokens
     userTokens.set(state as string, access_token);
+    userTokens.set(`${state}_refresh`, refresh_token);
     
     res.send('Successfully connected! You can close this window and return to Discord.');
   } catch (error) {
