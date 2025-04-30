@@ -565,6 +565,33 @@ async function processProfile(interaction: any) {
   }
 }
 
+// Add this helper function at the top level
+async function retryOperation<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  delay: number = 1000
+): Promise<T> {
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      console.log(`Attempt ${attempt} failed:`, error);
+      
+      if (attempt < maxRetries) {
+        console.log(`Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        // Exponential backoff
+        delay *= 2;
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
 async function processImage(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log('Image - User ID:', userId);
@@ -576,8 +603,13 @@ async function processImage(interaction: any) {
 
   try {
     console.log('Image - Fetching top tracks from Spotify...');
-    // Fetch top tracks
-    const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
+    // Fetch top tracks with retry logic
+    const topTracks = await retryOperation(
+      () => spotifyApi.getMyTopTracks({ limit: 5 }),
+      3,  // max retries
+      1000 // initial delay
+    );
+    
     console.log('Image - Spotify tracks received:', topTracks.body.items.length, 'tracks');
     
     const tracks = topTracks.body.items.map(track => ({
@@ -586,13 +618,18 @@ async function processImage(interaction: any) {
     }));
     console.log('Image - Prepared tracks data:', tracks);
 
-    // Call the web app's image generation endpoint
+    // Call the web app's image generation endpoint with retry logic
     console.log('Image - Sending request to generate-image endpoint...');
-    const response = await fetch('https://mnprofile-gen-five.vercel.app/api/generate-image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tracks })
-    });
+    const response = await retryOperation(
+      () => fetch('https://mnprofile-gen-five.vercel.app/api/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tracks })
+      }),
+      3,  // max retries
+      1000 // initial delay
+    );
+    
     console.log('Image - Response status:', response.status);
     const data = await response.json();
     console.log('Image - Response data:', data);
@@ -627,12 +664,16 @@ async function processImage(interaction: any) {
     console.error('Image generation error:', error);
     
     let errorMessage = 'An error occurred while generating your image.';
-    if (error && typeof error === 'object' && 'statusCode' in error) {
-      const spotifyError = error as { statusCode: number };
-      if (spotifyError.statusCode === 401) {
-        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-      } else if (spotifyError.statusCode === 429) {
-        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+    if (error && typeof error === 'object') {
+      if ('statusCode' in error) {
+        const spotifyError = error as { statusCode: number };
+        if (spotifyError.statusCode === 401) {
+          errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
+        } else if (spotifyError.statusCode === 429) {
+          errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+        }
+      } else if ('code' in error && (error as any).code === 'ECONNRESET') {
+        errorMessage = 'Connection to Spotify was interrupted. Please try the command again.';
       }
     }
 
