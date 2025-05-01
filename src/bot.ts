@@ -42,7 +42,7 @@ const client = new Client({
 const spotifyApi = new SpotifyWebApi({
   clientId: requiredEnvVars.SPOTIFY_CLIENT_ID!,
   clientSecret: requiredEnvVars.SPOTIFY_CLIENT_SECRET!,
-  redirectUri: requiredEnvVars.SPOTIFY_REDIRECT_URI!,
+  redirectUri: 'http://127.0.0.1:3000/api/auth/callback',
 });
 
 // Initialize OpenAI
@@ -121,17 +121,6 @@ app.post('/', async (req: Request, res: Response) => {
             break;
           case 'profile':
             response = await handleProfile(interaction);
-            // Start processing in the background
-            processProfile(interaction).then(updateResponse => {
-              // Send the update response to Discord
-              fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(updateResponse.data),
-              }).catch(console.error);
-            }).catch(console.error);
             break;
           case 'tracks':
             response = await handleTracks(interaction);
@@ -141,17 +130,6 @@ app.post('/', async (req: Request, res: Response) => {
             break;
           case 'image':
             response = await handleImage(interaction);
-            // Start processing in the background
-            processImage(interaction).then(updateResponse => {
-              // Send the update response to Discord
-              fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-                method: 'PATCH',
-                headers: {
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(updateResponse.data),
-              }).catch(console.error);
-            }).catch(console.error);
             break;
           default:
             console.log('Unknown command:', commandName);
@@ -212,29 +190,11 @@ const commands = [
     .setDescription('Generate an image based on your music taste'),
 ].map(command => command.toJSON());
 
-// Register commands
-const rest = new REST({ version: '10' }).setToken(requiredEnvVars.DISCORD_TOKEN!);
-
-(async () => {
-  try {
-    await rest.put(
-      Routes.applicationCommands(requiredEnvVars.DISCORD_CLIENT_ID!),
-      { body: commands },
-    );
-    console.log('Successfully registered application commands.');
-  } catch (error) {
-    console.error(error);
-  }
-})();
-
 // Handle commands
 client.on('interactionCreate', async interaction => {
   if (!interaction.isCommand()) return;
 
   try {
-    // Defer the reply immediately to prevent timeout
-    await interaction.deferReply();
-
     const { commandName } = interaction;
 
     switch (commandName) {
@@ -254,18 +214,15 @@ client.on('interactionCreate', async interaction => {
         await handleImage(interaction);
         break;
       default:
-        await interaction.editReply('Unknown command');
+        await interaction.reply({ content: 'Unknown command', ephemeral: true });
     }
   } catch (error) {
     console.error('Command error:', error);
     try {
-      // Try to edit the deferred reply
-      if (interaction.deferred) {
-        await interaction.editReply('An error occurred while processing your command.');
-      } else {
-        // If we couldn't defer, try to reply
-        await interaction.reply({ content: 'An error occurred while processing your command.', ephemeral: true });
-      }
+      await interaction.reply({ 
+        content: 'An error occurred while processing your command.', 
+        ephemeral: true 
+      });
     } catch (e) {
       console.error('Error handling command error:', e);
     }
@@ -274,11 +231,7 @@ client.on('interactionCreate', async interaction => {
 
 // Command handlers
 async function handleConnect(interaction: any) {
-  console.log('Connect command received');
-  console.log('Interaction data:', interaction);
-
-  // Use the same redirect URI as the web app
-  const webAppRedirectUri = process.env.NEXT_PUBLIC_REDIRECT_URI || process.env.SPOTIFY_REDIRECT_URI;
+  const userId = interaction.member?.user?.id || interaction.user?.id;
   const scopes = [
     'user-top-read',
     'user-read-private',
@@ -286,100 +239,35 @@ async function handleConnect(interaction: any) {
   ];
   
   try {
-    console.log('Creating authorization URL');
-    const userId = interaction.member?.user?.id || interaction.user?.id;
-    console.log('User ID:', userId);
-    
-    if (!userId) {
-      throw new Error('Could not find user ID in interaction');
-    }
-
-    // Build the Spotify authorization URL using the web app's flow
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: process.env.SPOTIFY_CLIENT_ID!,
       scope: scopes.join(' '),
-      redirect_uri: webAppRedirectUri!,
+      redirect_uri: 'http://127.0.0.1:3000/api/auth/callback',
       state: userId,
       show_dialog: 'true'
     });
     const authorizeURL = `https://accounts.spotify.com/authorize?${params.toString()}`;
-    console.log('Authorization URL created:', authorizeURL);
 
     // Create DM channel with the user
-    const dmResponse = await fetch(`https://discord.com/api/v10/users/@me/channels`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        recipient_id: userId
-      })
+    const dmChannel = await interaction.user.createDM();
+    await dmChannel.send(`Click this link to connect your Spotify account: ${authorizeURL}`);
+
+    await interaction.reply({
+      content: 'I\'ve sent you a DM with the Spotify authorization link!',
+      ephemeral: true
     });
-
-    if (!dmResponse.ok) {
-      throw new Error('Failed to create DM channel');
-    }
-
-    const dmChannel = await dmResponse.json();
-
-    // Send the authorization URL via DM
-    await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: `Click this link to connect your Spotify account: ${authorizeURL}`
-      })
-    });
-
-    // Return a response to the original interaction
-    return {
-      type: 4,
-      data: {
-        content: 'I\'ve sent you a DM with the Spotify authorization link!',
-        flags: 64 // EPHEMERAL
-      }
-    };
   } catch (error) {
     console.error('Error in handleConnect:', error);
-    return {
-      type: 4,
-      data: {
-        content: 'An error occurred while processing your request. Please make sure you have DMs enabled.',
-        flags: 64
-      }
-    };
+    await interaction.reply({
+      content: 'An error occurred while processing your request. Please make sure you have DMs enabled.',
+      ephemeral: true
+    });
   }
 }
 
 async function handleProfile(interaction: any) {
-  const userId = interaction.member?.user?.id || interaction.user?.id;
-  console.log('Profile - User ID:', userId);
-  
-  const accessToken = userTokens.get(userId);
-  console.log('Profile - Access Token exists:', !!accessToken);
-
-  if (!accessToken) {
-    return {
-      type: 4,
-      data: {
-        content: 'Please connect your Spotify account first using /connect',
-        flags: 64
-      }
-    };
-  }
-
-  // Send a deferred response immediately
-  return {
-    type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-    data: {
-      flags: 64 // EPHEMERAL
-    }
-  };
+  await handleTracks(interaction);
 }
 
 async function handleTracks(interaction: any) {
@@ -387,13 +275,11 @@ async function handleTracks(interaction: any) {
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
-    return {
-      type: 4,
-      data: {
-        content: 'Please connect your Spotify account first using /connect',
-        flags: 64
-      }
-    };
+    await interaction.reply({
+      content: 'Please connect your Spotify account first using /connect',
+      ephemeral: true
+    });
+    return;
   }
 
   try {
@@ -401,13 +287,11 @@ async function handleTracks(interaction: any) {
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
 
     if (!topTracks.body.items.length) {
-      return {
-        type: 4,
-        data: {
-          content: 'No top tracks found for your Spotify account.',
-          flags: 64
-        }
-      };
+      await interaction.reply({
+        content: 'No top tracks found for your Spotify account.',
+        ephemeral: true
+      });
+      return;
     }
 
     // Store tracks in cache
@@ -416,21 +300,15 @@ async function handleTracks(interaction: any) {
       timestamp: Date.now()
     });
 
-    const embed = {
-      title: `${interaction.member?.user?.username || interaction.user?.username}'s Top Tracks`,
-      description: topTracks.body.items
+    const embed = new EmbedBuilder()
+      .setTitle(`${interaction.member?.user?.username || interaction.user?.username}'s Top Tracks`)
+      .setDescription(topTracks.body.items
         .map((track, index) => `${index + 1}. ${track.name} - ${track.artists[0].name}`)
-        .join('\n'),
-      color: 0x1DB954,
-      timestamp: new Date().toISOString()
-    };
+        .join('\n'))
+      .setColor(0x1DB954)
+      .setTimestamp();
 
-    return {
-      type: 4,
-      data: {
-        embeds: [embed]
-      }
-    };
+    await interaction.reply({ embeds: [embed] });
   } catch (error: any) {
     console.error('Tracks error:', error);
 
@@ -441,13 +319,10 @@ async function handleTracks(interaction: any) {
       errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
     }
 
-    return {
-      type: 4,
-      data: {
-        content: errorMessage,
-        flags: 64
-      }
-    };
+    await interaction.reply({
+      content: errorMessage,
+      ephemeral: true
+    });
   }
 }
 
@@ -455,13 +330,10 @@ async function handleVerify(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   const isConnected = userTokens.has(userId);
 
-  return {
-    type: 4,
-    data: {
-      content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.',
-      flags: 64
-    }
-  };
+  await interaction.reply({
+    content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.',
+    ephemeral: true
+  });
 }
 
 async function handleImage(interaction: any) {
@@ -469,22 +341,85 @@ async function handleImage(interaction: any) {
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
-    return {
-      type: 4,
-      data: {
-        content: 'Please connect your Spotify account first using /connect',
-        flags: 64
-      }
-    };
+    await interaction.reply({
+      content: 'Please connect your Spotify account first using /connect',
+      ephemeral: true
+    });
+    return;
   }
 
-  // Send a deferred response immediately
-  return {
-    type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-    data: {
-      flags: 64 // EPHEMERAL
+  try {
+    spotifyApi.setAccessToken(accessToken);
+    const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
+    
+    const tracks = topTracks.body.items.map(track => ({
+      name: track.name,
+      artist: track.artists[0].name
+    }));
+
+    // Generate image prompt using OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert at creating detailed image generation prompts that capture the essence of music."
+        },
+        {
+          role: "user",
+          content: `Create a detailed prompt for DALL-E to generate an image that represents this music taste:
+          ${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}
+          
+          The prompt should:
+          1. Be highly detailed and specific
+          2. Capture the mood and style of the music
+          3. Be suitable for DALL-E image generation
+          4. Be 1-2 sentences long
+          5. Focus on creating a cohesive visual representation`
+        }
+      ],
+      temperature: 0.7,
+      max_tokens: 200
+    });
+
+    const imagePrompt = completion.choices[0].message.content;
+
+    // Generate image using DALL-E
+    const imageResponse = await openai.images.generate({
+      model: "dall-e-3",
+      prompt: imagePrompt!,
+      n: 1,
+      size: "1024x1024",
+      quality: "standard",
+      style: "vivid"
+    });
+
+    const imageUrl = imageResponse.data[0].url;
+
+    const embed = new EmbedBuilder()
+      .setTitle(`🎨 ${interaction.member?.user?.username || interaction.user?.username}'s Music Visualization`)
+      .setDescription(`*Generated by your music taste*\n\n**Prompt:** ${imagePrompt}`)
+      .setImage(imageUrl || '')
+      .setColor(0x1DB954)
+      .setFooter({ text: 'Generated with Spotify & OpenAI DALL-E' })
+      .setTimestamp();
+
+    await interaction.reply({ embeds: [embed] });
+  } catch (error: any) {
+    console.error('Image error:', error);
+
+    let errorMessage = 'An error occurred while generating your image.';
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      errorMessage = 'Your Spotify session has expired or you did not grant the required permissions. Please reconnect using /connect and approve all requested permissions.';
+    } else if (error.statusCode === 429) {
+      errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
     }
-  };
+
+    await interaction.reply({
+      content: errorMessage,
+      ephemeral: true
+    });
+  }
 }
 
 // Add new functions to handle the actual processing
@@ -564,21 +499,16 @@ async function processProfile(interaction: any) {
     console.log('Profile - OpenAI response received');
 
     // Create rich embed
-    const embed = {
-      title: `🎵 ${displayName}'s Music Nerd Profile`,
-      description: profile,
-      fields: [
-        {
-          name: '🎧 Top Tracks',
-          value: trackList
-        }
-      ],
-      color: 0x1DB954,
-      footer: {
-        text: 'Generated with Spotify & OpenAI'
-      },
-      timestamp: new Date().toISOString()
-    };
+    const embed = new EmbedBuilder()
+      .setTitle(`🎵 ${displayName}'s Music Nerd Profile`)
+      .setDescription(profile)
+      .addFields({
+        name: '🎧 Top Tracks',
+        value: trackList
+      })
+      .setColor(0x1DB954)
+      .setFooter({ text: 'Generated with Spotify & OpenAI' })
+      .setTimestamp();
 
     // Update the original message using webhook
     await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
@@ -591,12 +521,7 @@ async function processProfile(interaction: any) {
       })
     });
 
-    return {
-      type: 7, // UPDATE_MESSAGE
-      data: {
-        embeds: [embed]
-      }
-    };
+    await interaction.reply({ embeds: [embed] });
   } catch (error: unknown) {
     console.error('Profile generation error:', error);
     
@@ -624,13 +549,10 @@ async function processProfile(interaction: any) {
       })
     });
 
-    return {
-      type: 7, // UPDATE_MESSAGE
-      data: {
-        content: errorMessage,
-        flags: 64
-      }
-    };
+    await interaction.reply({
+      content: errorMessage,
+      ephemeral: true
+    });
   }
 }
 
@@ -661,172 +583,6 @@ async function retryOperation<T>(
   throw lastError;
 }
 
-async function processImage(interaction: any) {
-  const userId = interaction.member?.user?.id || interaction.user?.id;
-  console.log('Image - User ID:', userId);
-  
-  const accessToken = userTokens.get(userId);
-  console.log('Image - Access Token exists:', !!accessToken);
-
-  spotifyApi.setAccessToken(accessToken);
-
-  try {
-    console.log('Image - Fetching top tracks from Spotify...');
-    // Fetch top tracks with retry logic
-    const topTracks = await retryOperation(
-      () => spotifyApi.getMyTopTracks({ limit: 5 }),
-      3,
-      1000
-    );
-    
-    console.log('Image - Spotify tracks received:', topTracks.body.items.length, 'tracks');
-    
-    const tracks = topTracks.body.items.map(track => ({
-      name: track.name,
-      artist: track.artists[0].name
-    }));
-    console.log('Image - Prepared tracks data:', tracks);
-
-    // Generate image prompt using OpenAI
-    console.log('Image - Generating image prompt with OpenAI...');
-    const completion = await retryOperation(
-      () => openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert at creating detailed image generation prompts that capture the essence of music."
-          },
-          {
-            role: "user",
-            content: `Create a detailed prompt for DALL-E to generate an image that represents this music taste:
-            ${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}
-            
-            The prompt should:
-            1. Be highly detailed and specific
-            2. Capture the mood and style of the music
-            3. Be suitable for DALL-E image generation
-            4. Be 1-2 sentences long
-            5. Focus on creating a cohesive visual representation`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 200
-      }),
-      3,
-      1000
-    );
-
-    const imagePrompt = completion.choices[0].message.content;
-    console.log('Image - Generated prompt:', imagePrompt);
-
-    // Generate image using DALL-E
-    console.log('Image - Generating image with DALL-E...');
-    const imageResponse = await retryOperation(
-      () => openai.images.generate({
-        model: "dall-e-3",
-        prompt: imagePrompt!,
-        n: 1,
-        size: "1024x1024",
-        quality: "standard",
-        style: "vivid"
-      }),
-      3,
-      1000
-    );
-
-    const imageUrl = imageResponse.data[0].url;
-    console.log('Image - DALL-E image generated');
-
-    // Create rich embed
-    const embed = {
-      title: `🎨 ${interaction.member?.user?.username || interaction.user?.username}'s Music Visualization`,
-      description: `*Generated by your music taste*\n\n**Prompt:** ${imagePrompt}`,
-      image: {
-        url: imageUrl || ''
-      },
-      color: 0x1DB954,
-      footer: {
-        text: 'Generated with Spotify & OpenAI DALL-E'
-      },
-      timestamp: new Date().toISOString()
-    };
-
-    // Update the original message using webhook
-    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        embeds: [embed]
-      })
-    });
-
-    return {
-      type: 7, // UPDATE_MESSAGE
-      data: {
-        embeds: [embed]
-      }
-    };
-  } catch (error: unknown) {
-    console.error('Image generation error:', error);
-    
-    let errorMessage = 'An error occurred while generating your image.';
-    if (error && typeof error === 'object') {
-      if ('statusCode' in error) {
-        const spotifyError = error as { statusCode: number };
-        if (spotifyError.statusCode === 401) {
-          errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-        } else if (spotifyError.statusCode === 429) {
-          errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
-        }
-      }
-    }
-
-    // Update the original message with error
-    await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        content: errorMessage,
-        flags: 64
-      })
-    });
-
-    return {
-      type: 7, // UPDATE_MESSAGE
-      data: {
-        content: errorMessage,
-        flags: 64
-      }
-    };
-  }
-}
-
-// Add token refresh function
-async function refreshSpotifyToken(userId: string): Promise<boolean> {
-  try {
-    const refreshToken = userTokens.get(`${userId}_refresh`);
-    if (!refreshToken) {
-      return false;
-    }
-
-    spotifyApi.setRefreshToken(refreshToken);
-    const data = await spotifyApi.refreshAccessToken();
-    const newAccessToken = data.body.access_token;
-    
-    // Store the new access token
-    userTokens.set(userId, newAccessToken);
-    return true;
-  } catch (error) {
-    console.error('Error refreshing token:', error);
-    return false;
-  }
-}
-
 // Update the OAuth callback to store refresh token
 app.get('/api/auth/callback', async (req, res) => {
   const { code, state } = req.query;
@@ -839,16 +595,28 @@ app.get('/api/auth/callback', async (req, res) => {
     userTokens.set(state as string, access_token);
     userTokens.set(`${state}_refresh`, refresh_token);
     
-    res.send('Successfully connected! You can close this window and return to Discord.');
+    res.send(`
+      <html>
+        <body>
+          <h1>Successfully connected!</h1>
+          <p>You can close this window and return to Discord.</p>
+          <script>
+            window.close();
+          </script>
+        </body>
+      </html>
+    `);
   } catch (error) {
-    console.error(error);
-    res.status(500).send('An error occurred during authentication.');
+    console.error('Auth callback error:', error);
+    res.status(500).send(`
+      <html>
+        <body>
+          <h1>Error during authentication</h1>
+          <p>Please try again or contact support if the problem persists.</p>
+        </body>
+      </html>
+    `);
   }
-});
-
-// Add a health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).send('OK');
 });
 
 // Start the server
@@ -858,4 +626,24 @@ app.listen(PORT, () => {
 });
 
 // Login to Discord
-client.login(process.env.DISCORD_TOKEN); 
+client.login(process.env.DISCORD_TOKEN).then(async () => {
+  console.log('Bot is now online!');
+  
+  try {
+    // Register commands
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN!);
+    console.log('Started refreshing application (/) commands.');
+
+    await rest.put(
+      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID!),
+      { body: commands },
+    );
+
+    console.log('Successfully reloaded application (/) commands.');
+  } catch (error) {
+    console.error('Error registering commands:', error);
+  }
+}).catch((error) => {
+  console.error('Failed to login to Discord:', error);
+  process.exit(1);
+});
