@@ -239,11 +239,19 @@ async function handleConnect(interaction: any) {
   ];
   
   try {
+    // Determine the redirect URI based on environment
+    const isLocal = !process.env.VERCEL_URL;
+    const redirectUri = isLocal 
+      ? 'http://127.0.0.1:3000/api/auth/callback'
+      : `https://${process.env.VERCEL_URL}/api/auth/callback`;
+
+    console.log('Using redirect URI:', redirectUri);
+    
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: process.env.SPOTIFY_CLIENT_ID!,
       scope: scopes.join(' '),
-      redirect_uri: 'http://127.0.0.1:3000/api/auth/callback',
+      redirect_uri: redirectUri,
       state: userId,
       show_dialog: 'true'
     });
@@ -254,7 +262,7 @@ async function handleConnect(interaction: any) {
     await dmChannel.send(`Click this link to connect your Spotify account: ${authorizeURL}`);
 
     await interaction.reply({
-      content: 'I\'ve sent you a DM with the Spotify authorization link!',
+      content: 'I\'ve sent you a DM with the Spotify authorization link! Make sure you have DMs enabled.',
       ephemeral: true
     });
   } catch (error) {
@@ -583,11 +591,20 @@ async function retryOperation<T>(
   throw lastError;
 }
 
-// Update the OAuth callback to store refresh token
+// Update the OAuth callback to use the same environment-aware redirect URI
 app.get('/api/auth/callback', async (req, res) => {
   const { code, state } = req.query;
   
   try {
+    // Use the same redirect URI logic
+    const isLocal = !process.env.VERCEL_URL;
+    const redirectUri = isLocal 
+      ? 'http://127.0.0.1:3000/api/auth/callback'
+      : `https://${process.env.VERCEL_URL}/api/auth/callback`;
+
+    // Set the redirect URI before making the token request
+    spotifyApi.setRedirectURI(redirectUri);
+    
     const data = await spotifyApi.authorizationCodeGrant(code as string);
     const { access_token, refresh_token } = data.body;
     
@@ -613,6 +630,9 @@ app.get('/api/auth/callback', async (req, res) => {
         <body>
           <h1>Error during authentication</h1>
           <p>Please try again or contact support if the problem persists.</p>
+          <script>
+            setTimeout(() => window.close(), 5000);
+          </script>
         </body>
       </html>
     `);
