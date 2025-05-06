@@ -292,19 +292,35 @@ async function handleImage(interaction: any) {
 
 // Main handler for Discord interactions
 export default async function handler(req: any, res: any) {
-  // Verify the request is from Discord
+  console.log('Received request:', {
+    method: req.method,
+    headers: req.headers,
+    body: req.body
+  });
+
+  // Handle Discord's verification request first
+  if (req.body?.type === 1) {
+    console.log('Responding to PING request');
+    return res.status(200).json({ type: 1 });
+  }
+
+  // Then verify the request is from Discord
   const signature = req.headers['x-signature-ed25519'];
   const timestamp = req.headers['x-signature-timestamp'];
   const body = JSON.stringify(req.body);
+  
+  console.log('Verification details:', {
+    hasSignature: !!signature,
+    hasTimestamp: !!timestamp,
+    hasPublicKey: !!process.env.DISCORD_PUBLIC_KEY,
+    bodyType: req.body?.type
+  });
+
   const isValidRequest = verifyKey(body, signature, timestamp, process.env.DISCORD_PUBLIC_KEY!);
 
   if (!isValidRequest) {
+    console.log('Invalid request signature');
     return res.status(401).json({ error: 'Invalid request signature' });
-  }
-
-  // Handle Discord's verification request
-  if (req.body.type === 1) {
-    return res.status(200).json({ type: 1 });
   }
 
   // Handle commands
