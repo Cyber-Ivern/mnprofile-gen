@@ -115,45 +115,54 @@ app.post('/', async (req: Request, res: Response) => {
       const commandName = interaction.data.name;
       console.log('Command received:', commandName);
 
-      try {
+      // Always respond immediately with a deferred response
+      sendResponse({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+
+      // Now process the command asynchronously and PATCH the follow-up
+      (async () => {
         let response;
-        switch (commandName) {
-          case 'connect':
-            response = await handleConnect(interaction);
-            break;
-          case 'profile':
-            response = await handleProfile(interaction);
-            break;
-          case 'tracks':
-            response = await handleTracks(interaction);
-            break;
-          case 'verify':
-            response = await handleVerify(interaction);
-            break;
-          case 'image':
-            response = await handleImage(interaction);
-            break;
-          default:
-            console.log('Unknown command:', commandName);
-            response = {
-              type: 4,
-              data: {
+        try {
+          switch (commandName) {
+            case 'connect':
+              response = await handleConnect(interaction, true);
+              break;
+            case 'profile':
+              response = await handleProfile(interaction, true);
+              break;
+            case 'tracks':
+              response = await handleTracks(interaction, true);
+              break;
+            case 'verify':
+              response = await handleVerify(interaction, true);
+              break;
+            case 'image':
+              response = await handleImage(interaction, true);
+              break;
+            default:
+              response = {
                 content: 'Unknown command',
                 flags: 64
-              }
-            };
-        }
-        return sendResponse(response);
-      } catch (error) {
-        console.error('Error handling command:', error);
-        return sendResponse({
-          type: 4,
-          data: {
+              };
+          }
+        } catch (error) {
+          console.error('Error handling command:', error);
+          response = {
             content: 'An error occurred while processing your command.',
             flags: 64
-          }
+          };
+        }
+        // PATCH the follow-up message using Discord webhook
+        await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(
+            response.embeds ? { embeds: response.embeds } : { content: response.content, flags: response.flags }
+          )
         });
-      }
+      })();
+      return;
     }
 
     // If we get here, it's an unhandled interaction type
@@ -199,40 +208,87 @@ client.on('interactionCreate', async interaction => {
   try {
     const { commandName } = interaction;
 
+    // Always defer reply first for gateway/local mode
+    await interaction.deferReply({ ephemeral: true });
+
     switch (commandName) {
       case 'connect':
-        await handleConnect(interaction);
+        await handleConnect(interaction, false);
         break;
       case 'profile':
-        await handleProfile(interaction);
+        await handleProfile(interaction, false);
         break;
       case 'tracks':
-        await handleTracks(interaction);
+        await handleTracks(interaction, false);
         break;
       case 'verify':
-        await handleVerify(interaction);
+        await handleVerify(interaction, false);
         break;
       case 'image':
-        await handleImage(interaction);
+        await handleImage(interaction, false);
         break;
       default:
-        await interaction.reply({ content: 'Unknown command', ephemeral: true });
+        await interaction.editReply({ content: 'Unknown command' });
     }
   } catch (error) {
     console.error('Command error:', error);
     try {
-      await interaction.reply({ 
-        content: 'An error occurred while processing your command.', 
-        ephemeral: true 
-      });
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({ 
+          content: 'An error occurred while processing your command.', 
+          ephemeral: true 
+        });
+      } else {
+        await interaction.editReply({ 
+          content: 'An error occurred while processing your command.'
+        });
+      }
     } catch (e) {
       console.error('Error handling command error:', e);
     }
   }
 });
 
+// Helper to send a DM via Discord API (for HTTP/Vercel mode)
+async function sendDMToUser(userId: string, message: string) {
+  const discordToken = process.env.DISCORD_TOKEN;
+  if (!discordToken) {
+    throw new Error('DISCORD_TOKEN is not set');
+  }
+
+  // Create DM channel
+  const dmChannelRes = await fetch('https://discord.com/api/v10/users/@me/channels', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bot ${discordToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ recipient_id: userId })
+  });
+
+  if (!dmChannelRes.ok) {
+    throw new Error(`Failed to create DM channel: ${await dmChannelRes.text()}`);
+  }
+
+  const dmChannel = await dmChannelRes.json();
+
+  // Send message
+  const sendMsgRes = await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bot ${discordToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ content: message })
+  });
+
+  if (!sendMsgRes.ok) {
+    throw new Error(`Failed to send DM: ${await sendMsgRes.text()}`);
+  }
+}
+
 // Command handlers
-async function handleConnect(interaction: any) {
+async function handleConnect(interaction: any, isHttp = false) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   const scopes = [
     'user-top-read',
@@ -240,7 +296,6 @@ async function handleConnect(interaction: any) {
     'user-read-email'
   ];
 
-  // Use the same redirect URI logic as the callback handler
   const redirectUri = process.env.VERCEL_URL
     ? `https://${process.env.VERCEL_URL}/api/auth/callback`
     : 'http://127.0.0.1:3000/api/auth/callback';
@@ -256,51 +311,90 @@ async function handleConnect(interaction: any) {
     });
     const authorizeURL = `https://accounts.spotify.com/authorize?${params.toString()}`;
 
-    // Create DM channel with the user
-    const dmChannel = await interaction.user.createDM();
-    await dmChannel.send(`Click this link to connect your Spotify account: ${authorizeURL}`);
-
-    await interaction.reply({
-      content: 'I\'ve sent you a DM with the Spotify authorization link! Make sure you have DMs enabled.',
-      ephemeral: true
-    });
+    if (isHttp) {
+      // For HTTP, try to send a DM via Discord API
+      try {
+        await sendDMToUser(userId, `Click this link to connect your Spotify account: ${authorizeURL}`);
+        return {
+          content: "I've sent you a DM with the Spotify authorization link! Make sure you have DMs enabled.",
+          flags: 64 // ephemeral
+        };
+      } catch (dmError) {
+        console.error('Error sending DM via HTTP:', dmError);
+        return {
+          content: `Could not send you a DM. Please make sure your DMs are enabled. Here is your link: ${authorizeURL}`,
+          flags: 64
+        };
+      }
+    } else {
+      // For gateway, try to DM, but catch errors if DMs are closed
+      try {
+        if (interaction.user && typeof interaction.user.createDM === 'function') {
+          const dmChannel = await interaction.user.createDM();
+          await dmChannel.send(`Click this link to connect your Spotify account: ${authorizeURL}`);
+          return await interaction.editReply({
+            content: 'I\'ve sent you a DM with the Spotify authorization link! Make sure you have DMs enabled.',
+            ephemeral: true
+          });
+        } else {
+          // Fallback if createDM is not available
+          return await interaction.editReply({
+            content: `Click this link to connect your Spotify account: ${authorizeURL}`,
+            ephemeral: true
+          });
+        }
+      } catch (dmError) {
+        console.error('Error sending DM:', dmError);
+        return await interaction.editReply({
+          content: 'Could not send you a DM. Please make sure your DMs are enabled.',
+          ephemeral: true
+        });
+      }
+    }
   } catch (error) {
     console.error('Error in handleConnect:', error);
-    await interaction.reply({
-      content: 'An error occurred while processing your request. Please make sure you have DMs enabled.',
-      ephemeral: true
-    });
+    if (isHttp) {
+      return {
+        content: 'An error occurred while processing your request. Please make sure you have DMs enabled.',
+        flags: 64
+      };
+    } else {
+      return await interaction.editReply({
+        content: 'An error occurred while processing your request. Please make sure you have DMs enabled.',
+        ephemeral: true
+      });
+    }
   }
 }
 
-async function handleProfile(interaction: any) {
+async function handleProfile(interaction: any, isHttp = false) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
-    await interaction.reply({
-      content: 'Please connect your Spotify account first using /connect',
-      ephemeral: true
-    });
-    return;
+    if (isHttp) {
+      return {
+        content: 'Please connect your Spotify account first using /connect',
+        flags: 64
+      };
+    } else {
+      return await interaction.editReply({
+        content: 'Please connect your Spotify account first using /connect',
+      });
+    }
   }
 
   try {
-    // Show typing indicator
-    await interaction.deferReply();
-
     // Check cache first
     const cachedData = userTracksCache.get(userId);
     let tracks;
     
     if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
-      console.log('Profile - Using cached tracks data');
       tracks = cachedData.tracks.map(track => ({
         name: track.name,
         artist: track.artists[0].name
       }));
     } else {
-      console.log('Profile - Cache miss, fetching from Spotify...');
       spotifyApi.setAccessToken(accessToken);
       const topTracks = await retryOperation(
         () => spotifyApi.getMyTopTracks({ limit: 10 }),
@@ -321,27 +415,18 @@ async function handleProfile(interaction: any) {
     }
 
     const displayName = interaction.member?.user?.username || interaction.user?.username;
-    console.log('Profile - Prepared data:', { displayName, trackCount: tracks.length });
-
-    // Format tracks for display
     const trackList = tracks
       .map((track, index) => `${index + 1}. **${track.name}** - ${track.artist}`)
       .join('\n');
 
     // Generate profile analysis using OpenAI
-    console.log('Profile - Generating analysis with OpenAI...');
     const completion = await retryOperation(
       () => openai.chat.completions.create({
         model: "gpt-4",
         messages: [
           {
             role: "system",
-            content: `You are a witty and insightful music critic who creates engaging profiles based on someone's top tracks. 
-            Focus on identifying patterns, genres, and musical preferences. 
-            Be specific about the artists and songs mentioned.
-            Keep the profile concise (2-3 paragraphs) and engaging.
-            Format the response with emojis and markdown for better readability.
-            Include a fun title for the profile.`
+            content: `You are a witty and insightful music critic who creates engaging profiles based on someone's top tracks. \nFocus on identifying patterns, genres, and musical preferences. \nBe specific about the artists and songs mentioned.\nKeep the profile concise (2-3 paragraphs) and engaging.\nFormat the response with emojis and markdown for better readability.\nInclude a fun title for the profile.`
           },
           {
             role: "user",
@@ -356,9 +441,7 @@ async function handleProfile(interaction: any) {
     );
 
     const profile = completion.choices[0].message.content;
-    console.log('Profile - OpenAI response received');
 
-    // Create rich embed
     const embed = new EmbedBuilder()
       .setTitle(`🎵 ${displayName}'s Music Nerd Profile`)
       .setDescription(profile)
@@ -370,15 +453,14 @@ async function handleProfile(interaction: any) {
       .setFooter({ text: 'Generated with Spotify & OpenAI' })
       .setTimestamp();
 
-    // Handle both local and production environments
-    if (interaction.deferred) {
-      await interaction.editReply({ embeds: [embed] });
+    if (isHttp) {
+      return {
+        embeds: [embed]
+      };
     } else {
-      await interaction.reply({ embeds: [embed] });
+      return await interaction.editReply({ embeds: [embed] });
     }
   } catch (error: any) {
-    console.error('Profile generation error:', error);
-    
     let errorMessage = 'An error occurred while generating your profile.';
     if (error.statusCode === 401) {
       errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
@@ -386,43 +468,53 @@ async function handleProfile(interaction: any) {
       errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
     }
 
-    // Handle both local and production environments
-    if (interaction.deferred) {
-      await interaction.editReply({
+    if (isHttp) {
+      return {
         content: errorMessage,
-        ephemeral: true
-      });
+        flags: 64
+      };
     } else {
-      await interaction.reply({
+      return await interaction.editReply({
         content: errorMessage,
-        ephemeral: true
       });
     }
   }
 }
 
-async function handleTracks(interaction: any) {
+async function handleTracks(interaction: any, isHttp = false) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
-    await interaction.reply({
-      content: 'Please connect your Spotify account first using /connect',
-      ephemeral: true
-    });
-    return;
+    if (isHttp) {
+      return {
+        content: 'Please connect your Spotify account first using /connect',
+        flags: 64
+      };
+    } else {
+      return await interaction.editReply({
+        content: 'Please connect your Spotify account first using /connect',
+        ephemeral: true
+      });
+    }
   }
 
   try {
     spotifyApi.setAccessToken(accessToken);
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
 
-    if (!topTracks.body.items.length) {
-      await interaction.reply({
-        content: 'No top tracks found for your Spotify account.',
-        ephemeral: true
-      });
-      return;
+    if (!topTracks.body || !topTracks.body.items || !Array.isArray(topTracks.body.items) || !topTracks.body.items.length) {
+      if (isHttp) {
+        return {
+          content: 'No top tracks found for your Spotify account.',
+          flags: 64
+        };
+      } else {
+        return await interaction.editReply({
+          content: 'No top tracks found for your Spotify account.',
+          ephemeral: true
+        });
+      }
     }
 
     // Store tracks in cache
@@ -431,15 +523,22 @@ async function handleTracks(interaction: any) {
       timestamp: Date.now()
     });
 
+    const username = interaction.member?.user?.username || interaction.user?.username || 'User';
     const embed = new EmbedBuilder()
-      .setTitle(`${interaction.member?.user?.username || interaction.user?.username}'s Top Tracks`)
+      .setTitle(`${username}'s Top Tracks`)
       .setDescription(topTracks.body.items
         .map((track, index) => `${index + 1}. ${track.name} - ${track.artists[0].name}`)
         .join('\n'))
       .setColor(0x1DB954)
       .setTimestamp();
 
-    await interaction.reply({ embeds: [embed] });
+    if (isHttp) {
+      return {
+        embeds: [embed]
+      };
+    } else {
+      await interaction.editReply({ embeds: [embed] });
+    }
   } catch (error: any) {
     console.error('Tracks error:', error);
 
@@ -450,38 +549,54 @@ async function handleTracks(interaction: any) {
       errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
     }
 
-    await interaction.reply({
-      content: errorMessage,
-      ephemeral: true
+    if (isHttp) {
+      return {
+        content: errorMessage,
+        flags: 64
+      };
+    } else {
+      await interaction.editReply({
+        content: errorMessage,
+        ephemeral: true
+      });
+    }
+  }
+}
+
+async function handleVerify(interaction: any, isHttp = false) {
+  const userId = interaction.member?.user?.id || interaction.user?.id;
+  const isConnected = userTokens.has(userId);
+
+  if (isHttp) {
+    return {
+      content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.',
+      flags: 64
+    };
+  } else {
+    return await interaction.editReply({
+      content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.'
     });
   }
 }
 
-async function handleVerify(interaction: any) {
-  const userId = interaction.member?.user?.id || interaction.user?.id;
-  const isConnected = userTokens.has(userId);
-
-  await interaction.reply({
-    content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.',
-    ephemeral: true
-  });
-}
-
-async function handleImage(interaction: any) {
+async function handleImage(interaction: any, isHttp = false) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
-    await interaction.reply({
-      content: 'Please connect your Spotify account first using /connect',
-      ephemeral: true
-    });
-    return;
+    if (isHttp) {
+      return {
+        content: 'Please connect your Spotify account first using /connect',
+        flags: 64
+      };
+    } else {
+      return await interaction.editReply({
+        content: 'Please connect your Spotify account first using /connect',
+      });
+    }
   }
 
   try {
-    await interaction.deferReply(); // Defer the reply to avoid timeout
-
     spotifyApi.setAccessToken(accessToken);
     const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
     
@@ -500,15 +615,7 @@ async function handleImage(interaction: any) {
         },
         {
           role: "user",
-          content: `Create a detailed prompt for DALL-E to generate an image that represents this music taste:
-          ${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}
-          
-          The prompt should:
-          1. Be highly detailed and specific
-          2. Capture the mood and style of the music
-          3. Be suitable for DALL-E image generation
-          4. Be 1-2 sentences long
-          5. Focus on creating a cohesive visual representation`
+          content: `Create a detailed prompt for DALL-E to generate an image that represents this music taste:\n${tracks.map((track, i) => `${i + 1}. ${track.name} by ${track.artist}`).join('\\n')}\n\nThe prompt should:\n1. Be highly detailed and specific\n2. Capture the mood and style of the music\n3. Be suitable for DALL-E image generation\n4. Be 1-2 sentences long\n5. Focus on creating a cohesive visual representation`
         }
       ],
       temperature: 0.7,
@@ -537,10 +644,14 @@ async function handleImage(interaction: any) {
       .setFooter({ text: 'Generated with Spotify & OpenAI DALL-E' })
       .setTimestamp();
 
-    await interaction.editReply({ embeds: [embed] }); // Use editReply for deferred response
+    if (isHttp) {
+      return {
+        embeds: [embed]
+      };
+    } else {
+      return await interaction.editReply({ embeds: [embed] });
+    }
   } catch (error: any) {
-    console.error('Image error:', error);
-
     let errorMessage = 'An error occurred while generating your image.';
     if (error.statusCode === 401 || error.statusCode === 403) {
       errorMessage = 'Your Spotify session has expired or you did not grant the required permissions. Please reconnect using /connect and approve all requested permissions.';
@@ -548,10 +659,16 @@ async function handleImage(interaction: any) {
       errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
     }
 
-    await interaction.editReply({
-      content: errorMessage,
-      ephemeral: true
-    });
+    if (isHttp) {
+      return {
+        content: errorMessage,
+        flags: 64
+      };
+    } else {
+      return await interaction.editReply({
+        content: errorMessage,
+      });
+    }
   }
 }
 
