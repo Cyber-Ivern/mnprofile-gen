@@ -3,19 +3,17 @@
   "builds": [
     {
       "src": "src/bot.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["src/**/*"],
-        "buildCommand": "npm run build:bot",
-        "nodeVersion": "22.x",
-        "maxDuration": 60
-      }
+      "use": "@vercel/node"
+    },
+    {
+      "src": "src/pages/api/**/*.ts",
+      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
-      "src": "/(.*)",
-      "dest": "src/bot.ts"
+      "src": "/api/callback",
+      "dest": "src/pages/api/callback.ts"
     }
   ]
 } 
