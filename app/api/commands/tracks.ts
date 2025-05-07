@@ -16,7 +16,10 @@ interface SpotifyError {
 
 export async function handleTracks(interaction: any) {
   console.log('handleTracks called with interaction:', JSON.stringify(interaction, null, 2));
-  const userId = interaction.user.id;
+  // Safely extract user info
+  const user = interaction.user ?? interaction.member?.user;
+  const userId = user?.id;
+  const username = user?.username;
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
@@ -41,7 +44,7 @@ export async function handleTracks(interaction: any) {
     return NextResponse.json({
       type: 4,
       data: {
-        content: `**${interaction.user.username}'s Top Tracks**\n\n${trackList}`,
+        content: `**${username}'s Top Tracks**\n\n${trackList}`,
       },
     });
   } catch (error: unknown) {

@@ -9,8 +9,12 @@ export async function handleConnect(interaction: any) {
     'user-read-email'
   ];
   
+  // Safely extract user info
+  const user = interaction.user ?? interaction.member?.user;
+  const userId = user?.id;
+
   // Generate a unique state parameter for security
-  const state = interaction.user.id;
+  const state = userId;
   const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
   
   try {

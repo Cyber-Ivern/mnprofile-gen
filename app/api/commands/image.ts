@@ -17,7 +17,10 @@ interface SpotifyError {
 
 export async function handleImage(interaction: any) {
   console.log('handleImage called with interaction:', JSON.stringify(interaction, null, 2));
-  const userId = interaction.user.id;
+  // Safely extract user info
+  const user = interaction.user ?? interaction.member?.user;
+  const userId = user?.id;
+  const username = user?.username;
   const accessToken = userTokens.get(userId);
 
   if (!accessToken) {
@@ -74,7 +77,7 @@ export async function handleImage(interaction: any) {
     return NextResponse.json({
       type: 4,
       data: {
-        content: `**🎨 ${interaction.user.username}'s Music Visualization**\n\n*"${imagePrompt}"*\n\n${imageUrl}`,
+        content: `**🎨 ${username}'s Music Visualization**\n\n*"${imagePrompt}"*\n\n${imageUrl}`,
       },
     });
   } catch (error: unknown) {
