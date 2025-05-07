@@ -8,7 +8,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { getSpotifyAuthUrl } from '@/utils/spotify-client';
+import { spotifyApi } from '@/utils/spotify-client';
 import toast, { Toaster } from 'react-hot-toast';
 import Image from 'next/image';
 
@@ -161,7 +161,7 @@ export default function Home() {
     // Store the current options in cookies before redirecting
     document.cookie = `spotify_timeRange=${encodeURIComponent(timeRange)}; path=/; max-age=3600`;
     document.cookie = `spotify_trackLimit=${encodeURIComponent(trackLimit)}; path=/; max-age=3600`;
-    const url = getSpotifyAuthUrl(timeRange, trackLimit);
+    const url = spotifyApi.getAuthUrl(timeRange, trackLimit);
     window.location.href = url;
   };
 

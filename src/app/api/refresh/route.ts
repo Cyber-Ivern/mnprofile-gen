@@ -7,7 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getSpotifyAccessToken, getTopTracks } from '@src/utils/spotify-client';
+import { spotifyApi } from '@/utils/spotify-client';
 
 export async function POST(request: Request) {
   try {
@@ -21,14 +21,14 @@ export async function POST(request: Request) {
     }
 
     // Get new access token
-    const accessToken = await getSpotifyAccessToken(refreshToken);
+    const accessToken = await spotifyApi.getAccessToken(refreshToken);
     
     if (!accessToken) {
       return NextResponse.json({ error: 'Failed to refresh token' }, { status: 401 });
     }
 
     // Get updated top tracks
-    const topTracks = await getTopTracks(accessToken, timeRange, parseInt(trackLimit));
+    const topTracks = await spotifyApi.getTopTracks(accessToken, timeRange, parseInt(trackLimit));
 
     // Create response with cookies
     const response = NextResponse.json({ tracks: topTracks });

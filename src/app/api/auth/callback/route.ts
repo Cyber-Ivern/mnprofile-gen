@@ -6,7 +6,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { getAccessToken, getUserProfile, getTopTracks } from '@src/utils/spotify';
+import { spotifyApi } from '@/utils/spotify';
 
 interface StateParams {
   timeRange: string;
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     }
 
     console.log('Getting access token...');
-    const { access_token, refresh_token } = await getAccessToken(code);
+    const { access_token, refresh_token } = await spotifyApi.getAccessToken(code);
     
     if (!access_token) {
       console.error('No access token received');
@@ -76,14 +76,14 @@ export async function GET(request: Request) {
 
     console.log('Getting user profile...');
     try {
-      const profile = await getUserProfile(access_token);
+      const profile = await spotifyApi.getUserProfile(access_token);
       console.log('Got user profile:', {
         displayName: profile.display_name,
         id: profile.id
       });
 
       console.log('Getting top tracks...');
-      const topTracks = await getTopTracks(access_token, timeRange, trackLimit);
+      const topTracks = await spotifyApi.getTopTracks(access_token, timeRange, trackLimit);
       console.log('Got top tracks:', {
         count: topTracks.length,
         timeRange,
