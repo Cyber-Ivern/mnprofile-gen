@@ -19,7 +19,7 @@ if (!DISCORD_CLIENT_ID || !DISCORD_PUBLIC_KEY || !DISCORD_TOKEN) {
 }
 
 // Verify Discord interaction
-function verifyDiscordRequest(clientKey: string, body: any, signature: string, timestamp: string) {
+function verifyDiscordRequest(clientKey: string, body: Uint8Array, signature: string, timestamp: string) {
   return verifyKey(body, signature, timestamp, clientKey);
 }
 
@@ -31,12 +31,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request signature' }, { status: 401 });
   }
 
-  const body = await req.json();
+  // 1. Read the raw body as Uint8Array
+  const rawBody = new Uint8Array(await req.arrayBuffer());
 
-  // Verify the request
+  // 2. Verify the request using the raw body
   const isValidRequest = verifyDiscordRequest(
     DISCORD_PUBLIC_KEY!,
-    body,
+    rawBody,
     signature,
     timestamp
   );
@@ -44,6 +45,9 @@ export async function POST(req: NextRequest) {
   if (!isValidRequest) {
     return NextResponse.json({ error: 'Invalid request signature' }, { status: 401 });
   }
+
+  // 3. Parse the body only after verification
+  const body = JSON.parse(Buffer.from(rawBody).toString('utf-8'));
 
   const interaction = body;
 
