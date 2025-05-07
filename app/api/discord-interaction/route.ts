@@ -9,6 +9,8 @@ import { handleImage } from '../commands/image';
 // Validate environment variables
 const requiredEnvVars = {
   DISCORD_PUBLIC_KEY: process.env.DISCORD_PUBLIC_KEY,
+  DISCORD_APPLICATION_ID: process.env.DISCORD_APPLICATION_ID,
+  DISCORD_TOKEN: process.env.DISCORD_TOKEN,
 };
 
 // Check if any required environment variables are missing
@@ -17,6 +19,7 @@ const missingEnvVars = Object.entries(requiredEnvVars)
   .map(([key]) => key);
 
 if (missingEnvVars.length > 0) {
+  console.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
   throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
 }
 
