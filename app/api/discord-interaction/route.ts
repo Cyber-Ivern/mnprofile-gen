@@ -7,20 +7,15 @@ import { handleVerify } from '../commands/verify';
 import { handleImage } from '../commands/image';
 
 // Validate environment variables
-const requiredEnvVars = {
-  DISCORD_PUBLIC_KEY: process.env.DISCORD_PUBLIC_KEY,
-  DISCORD_APPLICATION_ID: process.env.DISCORD_APPLICATION_ID,
-  DISCORD_TOKEN: process.env.DISCORD_TOKEN,
-};
+const {
+  DISCORD_CLIENT_ID,
+  DISCORD_PUBLIC_KEY,
+  DISCORD_TOKEN,
+} = process.env;
 
 // Check if any required environment variables are missing
-const missingEnvVars = Object.entries(requiredEnvVars)
-  .filter(([_, value]) => !value)
-  .map(([key]) => key);
-
-if (missingEnvVars.length > 0) {
-  console.error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
-  throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+if (!DISCORD_CLIENT_ID || !DISCORD_PUBLIC_KEY || !DISCORD_TOKEN) {
+  throw new Error('Missing required environment variables');
 }
 
 // Verify Discord interaction
@@ -40,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   // Verify the request
   const isValidRequest = verifyDiscordRequest(
-    requiredEnvVars.DISCORD_PUBLIC_KEY!,
+    DISCORD_PUBLIC_KEY!,
     body,
     signature,
     timestamp
