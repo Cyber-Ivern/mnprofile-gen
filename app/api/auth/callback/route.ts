@@ -7,6 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { spotifyApi } from '@/utils/spotify-client';
+import { userTokens } from '../../spotify';
 
 interface StateParams {
   timeRange: string;
@@ -30,10 +31,15 @@ export async function GET(request: Request) {
 
   if (stateParam) {
     try {
-      const state = JSON.parse(stateParam) as StateParams;
-      timeRange = state.timeRange;
-      trackLimit = state.trackLimit;
-      console.log('Successfully parsed state:', { timeRange, trackLimit });
+      const state = JSON.parse(stateParam) as StateParams | string;
+      // If state is a string (Discord user ID), store the token after auth
+      if (typeof state === 'string') {
+        // Will store token after token exchange
+      } else {
+        timeRange = state.timeRange;
+        trackLimit = state.trackLimit;
+        console.log('Successfully parsed state:', { timeRange, trackLimit });
+      }
     } catch (e) {
       console.error('Error parsing state parameter:', e);
     }
@@ -73,6 +79,21 @@ export async function GET(request: Request) {
       hasRefreshToken: !!refresh_token,
       refreshTokenPreview: `${refresh_token.substring(0, 10)}...`
     });
+
+    // Store the access token in the userTokens map for Discord bot use
+    if (stateParam) {
+      try {
+        const state = JSON.parse(stateParam);
+        if (typeof state === 'string') {
+          userTokens.set(state, access_token);
+          console.log('Stored access token in userTokens map for Discord user:', state);
+        }
+      } catch (e) {
+        // If state is not JSON, treat as string
+        userTokens.set(stateParam, access_token);
+        console.log('Stored access token in userTokens map for Discord user:', stateParam);
+      }
+    }
 
     console.log('Getting user profile...');
     try {
