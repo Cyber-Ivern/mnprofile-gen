@@ -9,7 +9,8 @@
     "build": "tsc",
     "build:bot": "npm install && tsc",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "register-commands": "tsx scripts/register-commands.ts"
   },
   "dependencies": {
     "@types/cors": "^2.8.17",

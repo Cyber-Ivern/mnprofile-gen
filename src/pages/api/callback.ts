@@ -1,6 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { spotifyApi } from '@/utils/spotify';
-import { userTokens } from '@/utils/spotify-client';
+import { spotifyApi, userTokens } from '@/utils/spotify-client';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -14,8 +13,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const data = await spotifyApi.authorizationCodeGrant(code as string);
-    const { access_token, refresh_token } = data.body;
+    const data = await spotifyApi.getAccessToken(code as string);
+    const { access_token, refresh_token } = data;
     
     // Store both tokens
     userTokens.set(state as string, access_token);

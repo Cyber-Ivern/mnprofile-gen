@@ -6,7 +6,7 @@
  */
 
 import { NextResponse } from 'next/server';
-import { spotifyApi } from '@/utils/spotify';
+import { spotifyApi } from '@/utils/spotify-client';
 
 interface StateParams {
   timeRange: string;
@@ -83,7 +83,7 @@ export async function GET(request: Request) {
       });
 
       console.log('Getting top tracks...');
-      const topTracks = await spotifyApi.getTopTracks(access_token, timeRange, trackLimit);
+      const topTracks = await spotifyApi.getTopTracks(access_token, timeRange, parseInt(trackLimit));
       console.log('Got top tracks:', {
         count: topTracks.length,
         timeRange,
