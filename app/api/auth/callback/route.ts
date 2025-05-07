@@ -82,14 +82,6 @@ export async function GET(request: Request) {
         id: profile.id
       });
 
-      console.log('Getting top tracks...');
-      const topTracks = await spotifyApi.getTopTracks(access_token, timeRange, parseInt(trackLimit));
-      console.log('Got top tracks:', {
-        count: topTracks.length,
-        timeRange,
-        trackLimit
-      });
-
       // Create response with cookies
       const response = NextResponse.redirect(new URL('/', request.url));
       
@@ -105,7 +97,6 @@ export async function GET(request: Request) {
       console.log('Setting cookies with options:', cookieOptions);
 
       response.cookies.set('spotify_name', profile.display_name, cookieOptions);
-      response.cookies.set('spotify_tracks', JSON.stringify(topTracks), cookieOptions);
       response.cookies.set('spotify_refresh_token', refresh_token, {
         ...cookieOptions,
         httpOnly: true
@@ -116,13 +107,12 @@ export async function GET(request: Request) {
       console.log('Auth callback completed successfully');
       return response;
     } catch (profileError) {
-      console.error('Error in profile/tracks flow:', profileError);
+      console.error('Error in profile flow:', profileError);
       // Handle specific error for unregistered users
       if (profileError instanceof Error && profileError.message.includes('needs to be registered')) {
         console.warn('User needs to be registered in Spotify Dashboard');
         const response = NextResponse.redirect(new URL('/?error=unregistered_user', request.url));
         response.cookies.delete('spotify_name');
-        response.cookies.delete('spotify_tracks');
         return response;
       }
       throw profileError;
@@ -131,7 +121,6 @@ export async function GET(request: Request) {
     console.error('Error during Spotify authentication:', error);
     const response = NextResponse.redirect(new URL('/?error=auth_failed', request.url));
     response.cookies.delete('spotify_name');
-    response.cookies.delete('spotify_tracks');
     return response;
   }
 } 
