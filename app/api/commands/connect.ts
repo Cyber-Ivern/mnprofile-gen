@@ -6,8 +6,22 @@ export async function handleConnect(interaction: any) {
   const user = interaction.user ?? interaction.member?.user;
   const userId = user?.id;
 
-  // Link to the web app's connect page
-  const webAppConnectUrl = 'https://mnprofile-gen-1h4x.vercel.app/connect';
+  // Build the Spotify auth URL using the same logic as the web app
+  const scopes = [
+    'user-top-read',
+    'user-read-private',
+    'user-read-email'
+  ];
+  const state = userId;
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: process.env.SPOTIFY_CLIENT_ID!,
+    scope: scopes.join(' '),
+    redirect_uri: process.env.SPOTIFY_REDIRECT_URI!,
+    state,
+    show_dialog: 'true'
+  });
+  const authorizeURL = `https://accounts.spotify.com/authorize?${params.toString()}`;
 
   try {
     // 1. Create DM channel
@@ -40,7 +54,7 @@ export async function handleConnect(interaction: any) {
         'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ content: `Click this link to connect your Spotify account: ${webAppConnectUrl}` }),
+      body: JSON.stringify({ content: `Click this link to connect your Spotify account: ${authorizeURL}` }),
     });
 
     // 3. Respond to the interaction
