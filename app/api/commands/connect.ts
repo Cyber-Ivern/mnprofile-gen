@@ -1,21 +1,13 @@
 import { NextResponse } from 'next/server';
-import { spotifyApi } from '../spotify';
 
 export async function handleConnect(interaction: any) {
   console.log('handleConnect called with interaction:', JSON.stringify(interaction, null, 2));
-  const scopes = [
-    'user-top-read',
-    'user-read-private',
-    'user-read-email'
-  ];
-  
   // Safely extract user info
   const user = interaction.user ?? interaction.member?.user;
   const userId = user?.id;
 
-  // Generate a unique state parameter for security
-  const state = userId;
-  const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
+  // Link to the web app's connect page
+  const webAppConnectUrl = 'https://mnprofile-gen-1h4x.vercel.app/connect';
 
   try {
     // 1. Create DM channel
@@ -48,7 +40,7 @@ export async function handleConnect(interaction: any) {
         'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ content: `Click this link to connect your Spotify account: ${authorizeURL}` }),
+      body: JSON.stringify({ content: `Click this link to connect your Spotify account: ${webAppConnectUrl}` }),
     });
 
     // 3. Respond to the interaction
