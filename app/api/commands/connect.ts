@@ -16,13 +16,47 @@ export async function handleConnect(interaction: any) {
   // Generate a unique state parameter for security
   const state = userId;
   const authorizeURL = spotifyApi.createAuthorizeURL(scopes, state);
-  
+
   try {
+    // 1. Create DM channel
+    const dmChannelRes = await fetch('https://discord.com/api/v10/users/@me/channels', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ recipient_id: userId }),
+    });
+
+    if (!dmChannelRes.ok) {
+      // Fallback: tell the user to enable DMs
+      return NextResponse.json({
+        type: 4,
+        data: {
+          content: 'I could not DM you. Please make sure your DMs are open!',
+          flags: 64,
+        },
+      });
+    }
+
+    const dmChannel = await dmChannelRes.json();
+
+    // 2. Send the DM
+    await fetch(`https://discord.com/api/v10/channels/${dmChannel.id}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${process.env.DISCORD_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content: `Click this link to connect your Spotify account: ${authorizeURL}` }),
+    });
+
+    // 3. Respond to the interaction
     return NextResponse.json({
       type: 4,
       data: {
-        content: `Click this link to connect your Spotify account: ${authorizeURL}`,
-        flags: 64, // ephemeral
+        content: 'Check your DMs for the Spotify connection link!',
+        flags: 64,
       },
     });
   } catch (error) {
