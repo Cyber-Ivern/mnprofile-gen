@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { userTokens } from '../spotify';
 
 export async function handleVerify(interaction: any) {
+  console.log('handleVerify called with interaction:', JSON.stringify(interaction, null, 2));
   const userId = interaction.user.id;
   const isConnected = userTokens.has(userId);
 

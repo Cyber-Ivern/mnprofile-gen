@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { spotifyApi } from '../spotify';
 
 export async function handleConnect(interaction: any) {
+  console.log('handleConnect called with interaction:', JSON.stringify(interaction, null, 2));
   const scopes = [
     'user-top-read',
     'user-read-private',

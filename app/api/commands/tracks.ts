@@ -15,6 +15,7 @@ interface SpotifyError {
 }
 
 export async function handleTracks(interaction: any) {
+  console.log('handleTracks called with interaction:', JSON.stringify(interaction, null, 2));
   const userId = interaction.user.id;
   const accessToken = userTokens.get(userId);
 

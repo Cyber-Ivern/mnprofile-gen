@@ -16,6 +16,7 @@ interface SpotifyError {
 }
 
 export async function handleImage(interaction: any) {
+  console.log('handleImage called with interaction:', JSON.stringify(interaction, null, 2));
   const userId = interaction.user.id;
   const accessToken = userTokens.get(userId);
 

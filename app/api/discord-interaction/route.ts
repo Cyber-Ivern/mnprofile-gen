@@ -51,6 +51,9 @@ export async function POST(req: NextRequest) {
 
   const interaction = body;
 
+  // Add logging for received interactions
+  console.log('Received interaction:', JSON.stringify(interaction, null, 2));
+
   // Handle Discord ping
   if (interaction.type === 1) {
     return NextResponse.json({ type: 1 });
@@ -58,10 +61,10 @@ export async function POST(req: NextRequest) {
 
   // Handle commands
   if (interaction.type === 2) {
-    const { commandName } = interaction.data;
+    const { name } = interaction.data;
 
     try {
-      switch (commandName) {
+      switch (name) {
         case 'connect':
           return await handleConnect(interaction);
         case 'profile':
