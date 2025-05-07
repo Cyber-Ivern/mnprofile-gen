@@ -55,13 +55,13 @@ export async function GET(request: Request) {
     }
 
     console.log('Getting access token...');
-    const { access_token, refresh_token } = await spotifyApi.getAccessToken(code);
-    
-    if (!access_token) {
-      console.error('No access token received');
+    const tokenResponse = await spotifyApi.getAccessToken(code);
+    if (!tokenResponse.access_token) {
+      console.error('Spotify token exchange failed:', tokenResponse);
       throw new Error('Failed to get access token');
     }
-
+    const { access_token, refresh_token } = tokenResponse;
+    
     if (!refresh_token) {
       console.error('No refresh token received');
       throw new Error('Failed to get refresh token');
