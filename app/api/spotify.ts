@@ -1,5 +1,5 @@
 import SpotifyWebApi from 'spotify-web-api-node';
-import { getWebToken, setWebToken, deleteWebToken, getBotToken, setBotToken, deleteBotToken, getCachedTracks, setCachedTracks } from './token-store';
+import { getWebToken, setWebToken, deleteWebToken, getBotToken, setBotToken, deleteBotToken, getCachedTracks, setCachedTracks, hasBotToken } from './token-store';
 
 // Validate environment variables
 const requiredEnvVars = {
@@ -34,6 +34,7 @@ export {
   getBotToken,
   setBotToken,
   deleteBotToken,
+  hasBotToken,
   // Track cache management
   getCachedTracks,
   setCachedTracks,
