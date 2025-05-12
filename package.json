@@ -15,6 +15,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.24",
+    "@supabase/supabase-js": "^2.39.7",
     "cors": "^2.8.5",
     "discord-interactions": "^3.4.0",
     "discord.js": "^14.14.1",

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { spotifyApi, userTokens } from '../spotify';
+import { spotifyApi, getBotToken, getCachedTracks, setCachedTracks } from '../spotify';
 import { openai } from '../openai';
 
 interface SpotifyArtist {
@@ -21,7 +21,7 @@ export async function handleImage(interaction: any) {
   const user = interaction.user ?? interaction.member?.user;
   const userId = user?.id;
   const username = user?.username;
-  const accessToken = userTokens.get(userId);
+  const accessToken = await getBotToken(userId);
 
   if (!accessToken) {
     return NextResponse.json({
@@ -36,9 +36,21 @@ export async function handleImage(interaction: any) {
   spotifyApi.setAccessToken(accessToken);
 
   try {
-    // Fetch top tracks
-    const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
-    const trackList = topTracks.body.items
+    // Check cache first
+    const cachedTracks = await getCachedTracks(userId);
+    let tracks: SpotifyTrack[];
+
+    if (cachedTracks) {
+      tracks = cachedTracks;
+    } else {
+      // Fetch top tracks
+      const topTracks = await spotifyApi.getMyTopTracks({ limit: 5 });
+      tracks = topTracks.body.items;
+      // Cache the tracks
+      await setCachedTracks(userId, tracks);
+    }
+
+    const trackList = tracks
       .map((track: SpotifyTrack) => `${track.name} by ${track.artists[0].name}`)
       .join(', ');
 

@@ -1,4 +1,5 @@
 import SpotifyWebApi from 'spotify-web-api-node';
+import { getWebToken, setWebToken, deleteWebToken, getBotToken, setBotToken, deleteBotToken, getCachedTracks, setCachedTracks } from './token-store';
 
 // Validate environment variables
 const requiredEnvVars = {
@@ -23,5 +24,17 @@ export const spotifyApi = new SpotifyWebApi({
   redirectUri: requiredEnvVars.SPOTIFY_REDIRECT_URI!,
 });
 
-// Store user tokens temporarily (in production, use a proper database)
-export const userTokens = new Map<string, string>(); 
+// Export token management functions
+export {
+  // Web app token management
+  getWebToken,
+  setWebToken,
+  deleteWebToken,
+  // Bot token management
+  getBotToken,
+  setBotToken,
+  deleteBotToken,
+  // Track cache management
+  getCachedTracks,
+  setCachedTracks,
+}; 

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { setBotToken } from '../spotify';
 
 export async function handleConnect(interaction: any) {
   console.log('handleConnect called with interaction:', JSON.stringify(interaction, null, 2));

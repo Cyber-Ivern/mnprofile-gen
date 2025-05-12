@@ -5,143 +5,45 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import { NextResponse } from 'next/server';
-import { spotifyApi } from '@/utils/spotify-client';
-import { userTokens } from '../../spotify';
+import { NextRequest, NextResponse } from 'next/server';
+import { spotifyApi, setWebToken, setBotToken } from '../../spotify';
 
-interface StateParams {
-  timeRange: string;
-  trackLimit: string;
-}
-
-export async function GET(request: Request) {
-  console.log('Starting auth callback request');
-  const { searchParams } = new URL(request.url);
+export async function GET(req: NextRequest) {
+  const searchParams = req.nextUrl.searchParams;
   const code = searchParams.get('code');
-  const stateParam = searchParams.get('state');
+  const state = searchParams.get('state');
+  const error = searchParams.get('error');
 
-  console.log('Auth callback params:', {
-    hasCode: !!code,
-    codePreview: code ? `${code.substring(0, 10)}...` : null,
-    hasState: !!stateParam
-  });
-
-  let timeRange = 'short_term';
-  let trackLimit = '10';
-
-  if (stateParam) {
-    try {
-      const state = JSON.parse(stateParam) as StateParams | string;
-      // If state is a string (Discord user ID), store the token after auth
-      if (typeof state === 'string') {
-        // Will store token after token exchange
-      } else {
-        timeRange = state.timeRange;
-        trackLimit = state.trackLimit;
-        console.log('Successfully parsed state:', { timeRange, trackLimit });
-      }
-    } catch (e) {
-      console.error('Error parsing state parameter:', e);
-    }
+  if (error) {
+    return NextResponse.redirect(new URL('/error?message=' + encodeURIComponent(error), req.url));
   }
 
-  if (!code) {
-    console.error('No code received in callback');
-    return NextResponse.redirect(new URL('/?error=auth_failed', request.url));
+  if (!code || !state) {
+    return NextResponse.redirect(new URL('/error?message=Missing code or state', req.url));
   }
 
   try {
-    // Validate environment variables
-    if (!process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
-      console.error('Missing Spotify credentials:', {
-        hasClientId: !!process.env.NEXT_PUBLIC_SPOTIFY_CLIENT_ID,
-        hasClientSecret: !!process.env.SPOTIFY_CLIENT_SECRET
+    // Exchange code for token
+    const data = await spotifyApi.authorizationCodeGrant(code);
+    const accessToken = data.body.access_token;
+
+    // Check if this is a bot user (state will be the Discord user ID)
+    if (/^\d+$/.test(state)) {
+      // This is a bot user
+      await setBotToken(state, accessToken);
+      return new NextResponse('Successfully connected! You can close this window and return to Discord.', {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/plain',
+        },
       });
-      throw new Error('Missing Spotify credentials');
-    }
-
-    console.log('Getting access token...');
-    const tokenResponse = await spotifyApi.getAccessToken(code);
-    if (!tokenResponse.access_token) {
-      console.error('Spotify token exchange failed:', tokenResponse);
-      throw new Error('Failed to get access token');
-    }
-    const { access_token, refresh_token } = tokenResponse;
-    
-    if (!refresh_token) {
-      console.error('No refresh token received');
-      throw new Error('Failed to get refresh token');
-    }
-
-    console.log('Successfully received tokens:', {
-      hasAccessToken: !!access_token,
-      accessTokenPreview: `${access_token.substring(0, 10)}...`,
-      hasRefreshToken: !!refresh_token,
-      refreshTokenPreview: `${refresh_token.substring(0, 10)}...`
-    });
-
-    // Store the access token in the userTokens map for Discord bot use
-    if (stateParam) {
-      try {
-        const state = JSON.parse(stateParam);
-        if (typeof state === 'string') {
-          userTokens.set(state, access_token);
-          console.log('Stored access token in userTokens map for Discord user:', state);
-        }
-      } catch (e) {
-        // If state is not JSON, treat as string
-        userTokens.set(stateParam, access_token);
-        console.log('Stored access token in userTokens map for Discord user:', stateParam);
-      }
-    }
-
-    console.log('Getting user profile...');
-    try {
-      const profile = await spotifyApi.getUserProfile(access_token);
-      console.log('Got user profile:', {
-        displayName: profile.display_name,
-        id: profile.id
-      });
-
-      // Create response with cookies
-      const response = NextResponse.redirect(new URL('/', request.url));
-      
-      // Set cookies
-      const cookieOptions = {
-        httpOnly: false,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax' as const,
-        path: '/',
-        maxAge: 3600
-      };
-
-      console.log('Setting cookies with options:', cookieOptions);
-
-      response.cookies.set('spotify_name', profile.display_name, cookieOptions);
-      response.cookies.set('spotify_refresh_token', refresh_token, {
-        ...cookieOptions,
-        httpOnly: true
-      });
-      response.cookies.set('spotify_timeRange', timeRange, cookieOptions);
-      response.cookies.set('spotify_trackLimit', trackLimit, cookieOptions);
-
-      console.log('Auth callback completed successfully');
-      return response;
-    } catch (profileError) {
-      console.error('Error in profile flow:', profileError);
-      // Handle specific error for unregistered users
-      if (profileError instanceof Error && profileError.message.includes('needs to be registered')) {
-        console.warn('User needs to be registered in Spotify Dashboard');
-        const response = NextResponse.redirect(new URL('/?error=unregistered_user', request.url));
-        response.cookies.delete('spotify_name');
-        return response;
-      }
-      throw profileError;
+    } else {
+      // This is a web user
+      await setWebToken(accessToken);
+      return NextResponse.redirect(new URL('/profile', req.url));
     }
   } catch (error) {
-    console.error('Error during Spotify authentication:', error);
-    const response = NextResponse.redirect(new URL('/?error=auth_failed', request.url));
-    response.cookies.delete('spotify_name');
-    return response;
+    console.error('Error during token exchange:', error);
+    return NextResponse.redirect(new URL('/error?message=Failed to exchange token', req.url));
   }
 } 

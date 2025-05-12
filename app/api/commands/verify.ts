@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { userTokens } from '../spotify';
+import { hasBotToken } from '../spotify';
 
 export async function handleVerify(interaction: any) {
   console.log('handleVerify called with interaction:', JSON.stringify(interaction, null, 2));
   // Safely extract user info
   const user = interaction.user ?? interaction.member?.user;
   const userId = user?.id;
-  const isConnected = userTokens.has(userId);
+  const isConnected = await hasBotToken(userId);
 
   if (isConnected) {
     return NextResponse.json({

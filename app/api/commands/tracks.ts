@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { spotifyApi, userTokens } from '../spotify';
+import { spotifyApi, getBotToken, getCachedTracks, setCachedTracks } from '../spotify';
 
 interface SpotifyArtist {
   name: string;
@@ -20,7 +20,7 @@ export async function handleTracks(interaction: any) {
   const user = interaction.user ?? interaction.member?.user;
   const userId = user?.id;
   const username = user?.username;
-  const accessToken = userTokens.get(userId);
+  const accessToken = await getBotToken(userId);
 
   if (!accessToken) {
     return NextResponse.json({
@@ -35,9 +35,20 @@ export async function handleTracks(interaction: any) {
   spotifyApi.setAccessToken(accessToken);
 
   try {
-    const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
+    // Check cache first
+    const cachedTracks = await getCachedTracks(userId);
+    let tracks: SpotifyTrack[];
+
+    if (cachedTracks) {
+      tracks = cachedTracks;
+    } else {
+      const topTracks = await spotifyApi.getMyTopTracks({ limit: 10 });
+      tracks = topTracks.body.items;
+      // Cache the tracks
+      await setCachedTracks(userId, tracks);
+    }
     
-    const trackList = topTracks.body.items
+    const trackList = tracks
       .map((track: SpotifyTrack) => `${track.name} - ${track.artists[0].name}`)
       .join('\n');
 
