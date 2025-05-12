@@ -23,9 +23,32 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Exchange code for token
-    const data = await spotifyApi.authorizationCodeGrant(code);
-    const accessToken = data.body.access_token;
+    // Exchange code for token using the correct method
+    const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic ' + Buffer.from(
+          process.env.SPOTIFY_CLIENT_ID + ':' + process.env.SPOTIFY_CLIENT_SECRET
+        ).toString('base64')
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: process.env.SPOTIFY_REDIRECT_URI!
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      throw new Error('Failed to exchange token');
+    }
+
+    const data = await tokenResponse.json();
+    const accessToken = data.access_token;
+
+    if (!accessToken) {
+      throw new Error('Failed to get access token');
+    }
 
     // Check if this is a bot user (state will be the Discord user ID)
     if (/^\d+$/.test(state)) {
