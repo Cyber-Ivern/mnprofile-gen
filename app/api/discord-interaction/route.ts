@@ -120,20 +120,67 @@ async function handleConnect(interaction: any) {
 async function handleVerify(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log(`[Command] /verify used by ${userId}`);
+  
   // Query Supabase for the token
   const { data, error } = await supabase
     .from('spotify_tokens')
     .select('access_token')
     .eq('user_id', userId)
     .single();
-  const isConnected = !!data?.access_token;
-  return NextResponse.json({
-    type: 4,
-    data: {
-      content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.',
-      flags: 64
+
+  if (error || !data?.access_token) {
+    console.log(`[handleVerify] No token found for userId: ${userId}`);
+    return NextResponse.json({
+      type: 4,
+      data: {
+        content: '❌ Your Spotify account is not connected. Use /connect to link it.',
+        flags: 64
+      }
+    });
+  }
+
+  try {
+    // Test the token by making a simple API call
+    console.log(`[handleVerify] Testing token validity for userId: ${userId}`);
+    spotifyApi.setAccessToken(data.access_token);
+    await spotifyApi.getMyTopTracks({ limit: 1 }); // This will throw if token is invalid
+    
+    console.log(`[handleVerify] Token is valid for userId: ${userId}`);
+    return NextResponse.json({
+      type: 4,
+      data: {
+        content: '✅ Your Spotify account is connected and the token is valid!',
+        flags: 64
+      }
+    });
+  } catch (error: any) {
+    console.error(`[handleVerify] Token validation failed for userId: ${userId}:`, error);
+    
+    // If token is invalid, we should remove it from the database
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      console.log(`[handleVerify] Removing invalid token for userId: ${userId}`);
+      await supabase
+        .from('spotify_tokens')
+        .delete()
+        .eq('user_id', userId);
+      
+      return NextResponse.json({
+        type: 4,
+        data: {
+          content: '❌ Your Spotify token has expired. Please use /connect to reconnect your account.',
+          flags: 64
+        }
+      });
     }
-  });
+
+    return NextResponse.json({
+      type: 4,
+      data: {
+        content: '❌ There was an error verifying your Spotify connection. Please try /connect again.',
+        flags: 64
+      }
+    });
+  }
 }
 
 async function getAccessToken(userId: string): Promise<string | null> {
@@ -187,19 +234,38 @@ async function handleProfile(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log(`[Command] /profile used by ${userId}`);
   console.log(`[handleProfile] Called for userId: ${userId}`);
-  const accessToken = await getAccessToken(userId);
-  if (!accessToken) {
-    console.log(`[handleProfile] No access token for userId: ${userId}`);
-    return NextResponse.json({
-      type: 4,
-      data: {
-        content: 'Please connect your Spotify account first using /connect',
-        flags: 64
-      }
-    });
-  }
+
+  // Send deferred response immediately
+  const deferredResponse = NextResponse.json({
+    type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+    data: {
+      flags: 64 // EPHEMERAL
+    }
+  });
+
+  // Get the interaction token for follow-up
+  const interactionToken = interaction.token;
+
   try {
-    // Check cache first
+    const accessToken = await getAccessToken(userId);
+    if (!accessToken) {
+      console.log(`[handleProfile] No access token for userId: ${userId}`);
+      // Send follow-up message
+      await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bot ${DISCORD_TOKEN}`
+        },
+        body: JSON.stringify({
+          content: 'Please connect your Spotify account first using /connect',
+          flags: 64
+        })
+      });
+      return deferredResponse;
+    }
+
+    // Rest of the profile generation logic...
     let tracks = await getCachedTracks(userId);
     if (!tracks) {
       spotifyApi.setAccessToken(accessToken);
@@ -208,7 +274,6 @@ async function handleProfile(interaction: any) {
         name: track.name,
         artist: track.artists[0].name
       }));
-      // Ensure tracks is an array before caching
       if (Array.isArray(tracks)) {
         await setCachedTracks(userId, tracks);
       }
@@ -216,12 +281,13 @@ async function handleProfile(interaction: any) {
     } else {
       console.log(`[handleProfile] Using cached tracks for userId: ${userId}`);
     }
-    // Ensure tracks is an array for the rest of the function
+
     if (!Array.isArray(tracks)) tracks = [];
     const displayName = interaction.member?.user?.username || interaction.user?.username;
     const trackList = tracks
       .map((track: any, index: number) => `${index + 1}. **${track.name}** - ${track.artist}`)
       .join('\n');
+
     console.log(`[handleProfile] Sending request to OpenAI for userId: ${userId}`);
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
@@ -238,11 +304,18 @@ async function handleProfile(interaction: any) {
       temperature: 0.7,
       max_tokens: 500
     });
+
     console.log(`[handleProfile] OpenAI response received for userId: ${userId}`);
     const profile = completion.choices[0].message.content;
-    return NextResponse.json({
-      type: 4,
-      data: {
+
+    // Send follow-up message with the profile
+    await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${DISCORD_TOKEN}`
+      },
+      body: JSON.stringify({
         embeds: [
           {
             title: `🎵 ${displayName}'s Music Nerd Profile`,
@@ -258,23 +331,33 @@ async function handleProfile(interaction: any) {
             timestamp: new Date().toISOString()
           }
         ]
-      }
+      })
     });
+
+    return deferredResponse;
   } catch (error: any) {
-    console.error(`[handleProfile] Error for userId: ${userId}`, error);
+    console.error(`[handleProfile] Error for userId: ${userId}:`, error);
     let errorMessage = 'An error occurred while generating your profile.';
     if (error.statusCode === 401) {
       errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
     } else if (error.statusCode === 429) {
       errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
     }
-    return NextResponse.json({
-      type: 4,
-      data: {
+
+    // Send error as follow-up
+    await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${DISCORD_TOKEN}`
+      },
+      body: JSON.stringify({
         content: errorMessage,
         flags: 64
-      }
+      })
     });
+
+    return deferredResponse;
   }
 }
 
@@ -362,24 +445,45 @@ async function handleImage(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log(`[Command] /image used by ${userId}`);
   console.log(`[handleImage] Called for userId: ${userId}`);
-  const accessToken = await getAccessToken(userId);
-  if (!accessToken) {
-    console.log(`[handleImage] No access token for userId: ${userId}`);
-    return NextResponse.json({
-      type: 4,
-      data: {
-        content: 'Please connect your Spotify account first using /connect',
-        flags: 64
-      }
-    });
-  }
+
+  // Send deferred response immediately
+  const deferredResponse = NextResponse.json({
+    type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+    data: {
+      flags: 64 // EPHEMERAL
+    }
+  });
+
+  // Get the interaction token for follow-up
+  const interactionToken = interaction.token;
+
   try {
+    const accessToken = await getAccessToken(userId);
+    if (!accessToken) {
+      console.log(`[handleImage] No access token for userId: ${userId}`);
+      // Send follow-up message
+      await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bot ${DISCORD_TOKEN}`
+        },
+        body: JSON.stringify({
+          content: 'Please connect your Spotify account first using /connect',
+          flags: 64
+        })
+      });
+      return deferredResponse;
+    }
+
+    // Rest of the image generation logic...
     spotifyApi.setAccessToken(accessToken);
     const topTracks: any = await spotifyApi.getMyTopTracks({ limit: 5 });
     const tracks = topTracks.body.items.map((track: any) => ({
       name: track.name,
       artist: track.artists[0].name
     }));
+
     console.log(`[handleImage] Sending request to OpenAI for userId: ${userId}`);
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
@@ -390,12 +494,13 @@ async function handleImage(interaction: any) {
         },
         {
           role: "user",
-          content: `Create a detailed prompt for DALL-E to generate an image that represents this music taste:\n${tracks.map((track: any, i: number) => `${i + 1}. ${track.name} by ${track.artist}`).join('\\n')}\n\nThe prompt should:\n1. Be highly detailed and specific\n2. Capture the mood and style of the music\n3. Be suitable for DALL-E image generation\n4. Be 1-2 sentences long\n5. Focus on creating a cohesive visual representation`
+          content: `Create a detailed prompt for DALL-E to generate an image that represents this music taste:\n${tracks.map((track: any, i: number) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}\n\nThe prompt should:\n1. Be highly detailed and specific\n2. Capture the mood and style of the music\n3. Be suitable for DALL-E image generation\n4. Be 1-2 sentences long\n5. Focus on creating a cohesive visual representation`
         }
       ],
       temperature: 0.7,
       max_tokens: 200
     });
+
     console.log(`[handleImage] OpenAI prompt response received for userId: ${userId}`);
     const imagePrompt = completion.choices[0].message.content;
     const imageResponse = await openai.images.generate({
@@ -406,11 +511,18 @@ async function handleImage(interaction: any) {
       quality: "standard",
       style: "vivid"
     });
+
     console.log(`[handleImage] DALL-E image generated for userId: ${userId}`);
     const imageUrl = imageResponse.data[0].url;
-    return NextResponse.json({
-      type: 4,
-      data: {
+
+    // Send follow-up message with the image
+    await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${DISCORD_TOKEN}`
+      },
+      body: JSON.stringify({
         embeds: [
           {
             title: `🎨 ${interaction.member?.user?.username || interaction.user?.username}'s Music Visualization`,
@@ -421,23 +533,33 @@ async function handleImage(interaction: any) {
             timestamp: new Date().toISOString()
           }
         ]
-      }
+      })
     });
+
+    return deferredResponse;
   } catch (error: any) {
-    console.error(`[handleImage] Error for userId: ${userId}`, error);
+    console.error(`[handleImage] Error for userId: ${userId}:`, error);
     let errorMessage = 'An error occurred while generating your image.';
     if (error.statusCode === 401 || error.statusCode === 403) {
       errorMessage = 'Your Spotify session has expired or you did not grant the required permissions. Please reconnect using /connect and approve all requested permissions.';
     } else if (error.statusCode === 429) {
       errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
     }
-    return NextResponse.json({
-      type: 4,
-      data: {
+
+    // Send error as follow-up
+    await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${DISCORD_TOKEN}`
+      },
+      body: JSON.stringify({
         content: errorMessage,
         flags: 64
-      }
+      })
     });
+
+    return deferredResponse;
   }
 }
 
