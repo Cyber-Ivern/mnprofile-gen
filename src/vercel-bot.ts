@@ -352,6 +352,13 @@ app.post('/', async (req: Request, res: Response) => {
       return sendResponse({ type: 1 });
     }
     const interaction = req.body;
+    console.log('Received interaction:', interaction);
+    if (interaction.data) {
+      console.log('interaction.data.name:', interaction.data.name);
+      console.log('Full interaction data:', JSON.stringify(interaction.data, null, 2));
+    } else {
+      console.error('No interaction.data found!');
+    }
     if (interaction.type === 2) {
       const commandName = interaction.data.name;
       console.log('Command received:', commandName);
