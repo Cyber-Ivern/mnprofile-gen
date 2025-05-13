@@ -347,22 +347,27 @@ app.post('/', async (req: Request, res: Response) => {
     if (!isValid) {
       return sendError(401, 'Invalid signature');
     }
+    console.log('Received interaction:', req.body);
     if (req.body.type === 1) {
       return sendResponse({ type: 1 });
     }
     const interaction = req.body;
     if (interaction.type === 2) {
       const commandName = interaction.data.name;
+      console.log('Command received:', commandName);
       sendResponse({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
       (async () => {
         let response;
         try {
+          console.log(`About to handle command: ${commandName}`);
           switch (commandName) {
             case 'connect':
               response = await handleConnect(interaction);
               break;
             case 'profile':
+              console.log('Calling handleProfile...');
               response = await handleProfile(interaction);
+              console.log('handleProfile response:', response);
               break;
             case 'tracks':
               response = await handleTracks(interaction);
@@ -371,7 +376,9 @@ app.post('/', async (req: Request, res: Response) => {
               response = await handleVerify(interaction);
               break;
             case 'image':
+              console.log('Calling handleImage...');
               response = await handleImage(interaction);
+              console.log('handleImage response:', response);
               break;
             default:
               response = {
@@ -380,11 +387,13 @@ app.post('/', async (req: Request, res: Response) => {
               };
           }
         } catch (error) {
+          console.error('Error in command handler:', error);
           response = {
             content: 'An error occurred while processing your command.',
             flags: 64
           };
         }
+        console.log('About to PATCH Discord webhook with response:', response);
         await fetch(`https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
           method: 'PATCH',
           headers: {
@@ -395,7 +404,9 @@ app.post('/', async (req: Request, res: Response) => {
               ? { embeds: response.embeds }
               : { content: response.content, flags: response.flags }
           )
-        });
+        })
+        .then(() => console.log('PATCH to Discord sent'))
+        .catch(err => console.error('PATCH to Discord failed:', err));
       })();
       return;
     }
@@ -407,6 +418,7 @@ app.post('/', async (req: Request, res: Response) => {
       }
     });
   } catch (error) {
+    console.error('Error in main interaction handler:', error);
     return sendError(401, 'Verification failed');
   }
 });
