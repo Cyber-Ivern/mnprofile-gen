@@ -104,8 +104,10 @@ async function handleConnect(interaction: any) {
 
 async function handleProfile(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log(`[handleProfile] Called for userId: ${userId}`);
   const accessToken = userTokens.get(userId);
   if (!accessToken) {
+    console.log(`[handleProfile] No access token for userId: ${userId}`);
     return {
       content: 'Please connect your Spotify account first using /connect',
       flags: 64
@@ -120,6 +122,7 @@ async function handleProfile(interaction: any) {
         name: track.name,
         artist: track.artists[0].name
       }));
+      console.log(`[handleProfile] Using cached tracks for userId: ${userId}`);
     } else {
       spotifyApi.setAccessToken(accessToken);
       const topTracks: any = await spotifyApi.getMyTopTracks({ limit: 10 });
@@ -131,11 +134,13 @@ async function handleProfile(interaction: any) {
         tracks: topTracks.body.items,
         timestamp: Date.now()
       });
+      console.log(`[handleProfile] Fetched tracks from Spotify for userId: ${userId}`);
     }
     const displayName = interaction.member?.user?.username || interaction.user?.username;
     const trackList = tracks
       .map((track: any, index: number) => `${index + 1}. **${track.name}** - ${track.artist}`)
       .join('\n');
+    console.log(`[handleProfile] Sending request to OpenAI for userId: ${userId}`);
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
@@ -151,6 +156,7 @@ async function handleProfile(interaction: any) {
       temperature: 0.7,
       max_tokens: 500
     });
+    console.log(`[handleProfile] OpenAI response received for userId: ${userId}`);
     const profile = completion.choices[0].message.content;
     return {
       embeds: [
@@ -170,6 +176,7 @@ async function handleProfile(interaction: any) {
       ]
     };
   } catch (error: any) {
+    console.error(`[handleProfile] Error for userId: ${userId}`, error);
     let errorMessage = 'An error occurred while generating your profile.';
     if (error.statusCode === 401) {
       errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
@@ -243,8 +250,10 @@ async function handleVerify(interaction: any) {
 
 async function handleImage(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log(`[handleImage] Called for userId: ${userId}`);
   const accessToken = userTokens.get(userId);
   if (!accessToken) {
+    console.log(`[handleImage] No access token for userId: ${userId}`);
     return {
       content: 'Please connect your Spotify account first using /connect',
       flags: 64
@@ -257,6 +266,7 @@ async function handleImage(interaction: any) {
       name: track.name,
       artist: track.artists[0].name
     }));
+    console.log(`[handleImage] Sending request to OpenAI for userId: ${userId}`);
     const completion = await openai.chat.completions.create({
       model: "gpt-4",
       messages: [
@@ -272,6 +282,7 @@ async function handleImage(interaction: any) {
       temperature: 0.7,
       max_tokens: 200
     });
+    console.log(`[handleImage] OpenAI prompt response received for userId: ${userId}`);
     const imagePrompt = completion.choices[0].message.content;
     const imageResponse = await openai.images.generate({
       model: "dall-e-3",
@@ -281,6 +292,7 @@ async function handleImage(interaction: any) {
       quality: "standard",
       style: "vivid"
     });
+    console.log(`[handleImage] DALL-E image generated for userId: ${userId}`);
     const imageUrl = imageResponse.data[0].url;
     return {
       embeds: [
@@ -295,6 +307,7 @@ async function handleImage(interaction: any) {
       ]
     };
   } catch (error: any) {
+    console.error(`[handleImage] Error for userId: ${userId}`, error);
     let errorMessage = 'An error occurred while generating your image.';
     if (error.statusCode === 401 || error.statusCode === 403) {
       errorMessage = 'Your Spotify session has expired or you did not grant the required permissions. Please reconnect using /connect and approve all requested permissions.';
