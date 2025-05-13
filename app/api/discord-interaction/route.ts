@@ -2,6 +2,7 @@ import { verifyKey } from 'discord-interactions';
 import { NextRequest, NextResponse } from 'next/server';
 import SpotifyWebApi from 'spotify-web-api-node';
 import OpenAI from 'openai';
+import { supabase } from '../supabase';
 
 // Validate environment variables
 const {
@@ -31,11 +32,6 @@ const spotifyApi = new SpotifyWebApi({
 const openai = new OpenAI({
   apiKey: OPENAI_API_KEY!,
 });
-
-// In-memory user token store (not persistent on Vercel, for demo only)
-const userTokens = new Map<string, string>();
-const userTracksCache = new Map<string, { tracks: any[], timestamp: number }>();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Helper to send a DM via Discord API
 async function sendDMToUser(userId: string, message: string) {
@@ -115,10 +111,62 @@ async function handleConnect(interaction: any) {
   }
 }
 
+async function handleVerify(interaction: any) {
+  const userId = interaction.member?.user?.id || interaction.user?.id;
+  // Query Supabase for the token
+  const { data, error } = await supabase
+    .from('spotify_tokens')
+    .select('access_token')
+    .eq('user_id', userId)
+    .single();
+  const isConnected = !!data?.access_token;
+  return NextResponse.json({
+    type: 4,
+    data: {
+      content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.',
+      flags: 64
+    }
+  });
+}
+
+async function getAccessToken(userId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('spotify_tokens')
+    .select('access_token')
+    .eq('user_id', userId)
+    .single();
+  return data?.access_token || null;
+}
+
+async function setAccessToken(userId: string, accessToken: string) {
+  await supabase.from('spotify_tokens').upsert({ user_id: userId, access_token: accessToken });
+}
+
+async function getCachedTracks(userId: string): Promise<any[] | null> {
+  const { data, error } = await supabase
+    .from('track_cache')
+    .select('tracks, created_at')
+    .eq('user_id', userId)
+    .single();
+  if (!data) return null;
+  // Check if cache is expired (older than 5 minutes)
+  const cacheTime = new Date(data.created_at).getTime();
+  if (Date.now() - cacheTime > 5 * 60 * 1000) {
+    // Optionally delete expired cache
+    await supabase.from('track_cache').delete().eq('user_id', userId);
+    return null;
+  }
+  return data.tracks;
+}
+
+async function setCachedTracks(userId: string, tracks: any[]) {
+  await supabase.from('track_cache').upsert({ user_id: userId, tracks });
+}
+
 async function handleProfile(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log(`[handleProfile] Called for userId: ${userId}`);
-  const accessToken = userTokens.get(userId);
+  const accessToken = await getAccessToken(userId);
   if (!accessToken) {
     console.log(`[handleProfile] No access token for userId: ${userId}`);
     return NextResponse.json({
@@ -131,27 +179,20 @@ async function handleProfile(interaction: any) {
   }
   try {
     // Check cache first
-    const cachedData = userTracksCache.get(userId);
-    let tracks: any[] = [];
-    if (cachedData && (Date.now() - cachedData.timestamp) < CACHE_DURATION) {
-      tracks = cachedData.tracks.map((track: any) => ({
-        name: track.name,
-        artist: track.artists[0].name
-      }));
-      console.log(`[handleProfile] Using cached tracks for userId: ${userId}`);
-    } else {
+    let tracks = await getCachedTracks(userId);
+    if (!tracks) {
       spotifyApi.setAccessToken(accessToken);
       const topTracks: any = await spotifyApi.getMyTopTracks({ limit: 10 });
       tracks = topTracks.body.items.map((track: any) => ({
         name: track.name,
         artist: track.artists[0].name
       }));
-      userTracksCache.set(userId, {
-        tracks: topTracks.body.items,
-        timestamp: Date.now()
-      });
+      await setCachedTracks(userId, tracks);
       console.log(`[handleProfile] Fetched tracks from Spotify for userId: ${userId}`);
+    } else {
+      console.log(`[handleProfile] Using cached tracks for userId: ${userId}`);
     }
+    if (!tracks) tracks = [];
     const displayName = interaction.member?.user?.username || interaction.user?.username;
     const trackList = tracks
       .map((track: any, index: number) => `${index + 1}. **${track.name}** - ${track.artist}`)
@@ -214,7 +255,7 @@ async function handleProfile(interaction: any) {
 
 async function handleTracks(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
-  const accessToken = userTokens.get(userId);
+  const accessToken = await getAccessToken(userId);
   if (!accessToken) {
     return NextResponse.json({
       type: 4,
@@ -236,10 +277,7 @@ async function handleTracks(interaction: any) {
         }
       });
     }
-    userTracksCache.set(userId, {
-      tracks: topTracks.body.items,
-      timestamp: Date.now()
-    });
+    await setCachedTracks(userId, topTracks.body.items || []);
     const username = interaction.member?.user?.username || interaction.user?.username || 'User';
     return NextResponse.json({
       type: 4,
@@ -273,22 +311,10 @@ async function handleTracks(interaction: any) {
   }
 }
 
-async function handleVerify(interaction: any) {
-  const userId = interaction.member?.user?.id || interaction.user?.id;
-  const isConnected = userTokens.has(userId);
-  return NextResponse.json({
-    type: 4,
-    data: {
-      content: isConnected ? '✅ Your Spotify account is connected!' : '❌ Your Spotify account is not connected. Use /connect to link it.',
-      flags: 64
-    }
-  });
-}
-
 async function handleImage(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log(`[handleImage] Called for userId: ${userId}`);
-  const accessToken = userTokens.get(userId);
+  const accessToken = await getAccessToken(userId);
   if (!accessToken) {
     console.log(`[handleImage] No access token for userId: ${userId}`);
     return NextResponse.json({
