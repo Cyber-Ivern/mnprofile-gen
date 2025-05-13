@@ -62,6 +62,7 @@ async function sendDMToUser(userId: string, message: string) {
 // Command handlers
 async function handleConnect(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log(`[Command] /connect used by ${userId}`);
   const scopes = [
     'user-top-read',
     'user-read-private',
@@ -113,6 +114,7 @@ async function handleConnect(interaction: any) {
 
 async function handleVerify(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log(`[Command] /verify used by ${userId}`);
   // Query Supabase for the token
   const { data, error } = await supabase
     .from('spotify_tokens')
@@ -165,6 +167,7 @@ async function setCachedTracks(userId: string, tracks: any[]) {
 
 async function handleProfile(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log(`[Command] /profile used by ${userId}`);
   console.log(`[handleProfile] Called for userId: ${userId}`);
   const accessToken = await getAccessToken(userId);
   if (!accessToken) {
@@ -187,12 +190,16 @@ async function handleProfile(interaction: any) {
         name: track.name,
         artist: track.artists[0].name
       }));
-      await setCachedTracks(userId, tracks);
+      // Ensure tracks is an array before caching
+      if (Array.isArray(tracks)) {
+        await setCachedTracks(userId, tracks);
+      }
       console.log(`[handleProfile] Fetched tracks from Spotify for userId: ${userId}`);
     } else {
       console.log(`[handleProfile] Using cached tracks for userId: ${userId}`);
     }
-    if (!tracks) tracks = [];
+    // Ensure tracks is an array for the rest of the function
+    if (!Array.isArray(tracks)) tracks = [];
     const displayName = interaction.member?.user?.username || interaction.user?.username;
     const trackList = tracks
       .map((track: any, index: number) => `${index + 1}. **${track.name}** - ${track.artist}`)
@@ -255,6 +262,7 @@ async function handleProfile(interaction: any) {
 
 async function handleTracks(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log(`[Command] /tracks used by ${userId}`);
   const accessToken = await getAccessToken(userId);
   if (!accessToken) {
     return NextResponse.json({
@@ -277,7 +285,10 @@ async function handleTracks(interaction: any) {
         }
       });
     }
-    await setCachedTracks(userId, topTracks.body.items || []);
+    // Only cache if we have valid tracks
+    if (Array.isArray(topTracks.body.items)) {
+      await setCachedTracks(userId, topTracks.body.items);
+    }
     const username = interaction.member?.user?.username || interaction.user?.username || 'User';
     return NextResponse.json({
       type: 4,
@@ -313,6 +324,7 @@ async function handleTracks(interaction: any) {
 
 async function handleImage(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
+  console.log(`[Command] /image used by ${userId}`);
   console.log(`[handleImage] Called for userId: ${userId}`);
   const accessToken = await getAccessToken(userId);
   if (!accessToken) {
@@ -437,6 +449,13 @@ export async function POST(req: NextRequest) {
   // Handle commands
   if (interaction.type === 2) {
     const { name } = interaction.data;
+    const userId = interaction.member?.user?.id || interaction.user?.id;
+    const username = interaction.member?.user?.username || interaction.user?.username;
+    const guildId = interaction.guild_id;
+    const channelId = interaction.channel_id;
+
+    // Log command usage with detailed context
+    console.log(`[Command Usage] Command: /${name} | User: ${username} (${userId}) | Guild: ${guildId} | Channel: ${channelId}`);
 
     try {
       switch (name) {
