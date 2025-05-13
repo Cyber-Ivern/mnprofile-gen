@@ -11,11 +11,12 @@ const {
   DISCORD_TOKEN,
   SPOTIFY_CLIENT_ID,
   SPOTIFY_CLIENT_SECRET,
+  SPOTIFY_REDIRECT_URI,
   OPENAI_API_KEY,
   VERCEL_URL
 } = process.env;
 
-if (!DISCORD_CLIENT_ID || !DISCORD_PUBLIC_KEY || !DISCORD_TOKEN || !SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !OPENAI_API_KEY) {
+if (!DISCORD_CLIENT_ID || !DISCORD_PUBLIC_KEY || !DISCORD_TOKEN || !SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET || !SPOTIFY_REDIRECT_URI || !OPENAI_API_KEY) {
   throw new Error('Missing required environment variables');
 }
 
@@ -23,9 +24,7 @@ if (!DISCORD_CLIENT_ID || !DISCORD_PUBLIC_KEY || !DISCORD_TOKEN || !SPOTIFY_CLIE
 const spotifyApi = new SpotifyWebApi({
   clientId: SPOTIFY_CLIENT_ID!,
   clientSecret: SPOTIFY_CLIENT_SECRET!,
-  redirectUri: VERCEL_URL
-    ? `https://${VERCEL_URL}/api/auth/callback`
-    : 'http://127.0.0.1:3000/api/auth/callback'
+  redirectUri: SPOTIFY_REDIRECT_URI!
 });
 
 // Initialize OpenAI
@@ -68,19 +67,25 @@ async function handleConnect(interaction: any) {
     'user-read-private',
     'user-read-email'
   ];
-  const redirectUri = VERCEL_URL
-    ? `https://${VERCEL_URL}/api/auth/callback`
-    : 'http://127.0.0.1:3000/api/auth/callback';
+  
+  // Log the VERCEL_URL for debugging
+  console.log(`[handleConnect] VERCEL_URL: ${VERCEL_URL}`);
+  
+  console.log(`[handleConnect] Using redirect URI: ${SPOTIFY_REDIRECT_URI}`);
+  
   try {
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: SPOTIFY_CLIENT_ID!,
       scope: scopes.join(' '),
-      redirect_uri: redirectUri,
+      redirect_uri: SPOTIFY_REDIRECT_URI!,
       state: userId,
       show_dialog: 'true'
     });
+    
     const authorizeURL = `https://accounts.spotify.com/authorize?${params.toString()}`;
+    console.log(`[handleConnect] Generated auth URL: ${authorizeURL}`);
+    
     try {
       await sendDMToUser(userId, `Click this link to connect your Spotify account: ${authorizeURL}`);
       return NextResponse.json({
@@ -91,7 +96,7 @@ async function handleConnect(interaction: any) {
         }
       });
     } catch (dmError) {
-      console.error('Error sending DM via HTTP:', dmError);
+      console.error('[handleConnect] Error sending DM:', dmError);
       return NextResponse.json({
         type: 4,
         data: {
@@ -101,7 +106,7 @@ async function handleConnect(interaction: any) {
       });
     }
   } catch (error) {
-    console.error('Error in handleConnect:', error);
+    console.error('[handleConnect] Error:', error);
     return NextResponse.json({
       type: 4,
       data: {
@@ -132,12 +137,25 @@ async function handleVerify(interaction: any) {
 }
 
 async function getAccessToken(userId: string): Promise<string | null> {
+  console.log(`[getAccessToken] Fetching token for userId: ${userId}`);
   const { data, error } = await supabase
     .from('spotify_tokens')
     .select('access_token')
     .eq('user_id', userId)
     .single();
-  return data?.access_token || null;
+  
+  if (error) {
+    console.error(`[getAccessToken] Error fetching token:`, error);
+    return null;
+  }
+  
+  if (!data?.access_token) {
+    console.log(`[getAccessToken] No token found for userId: ${userId}`);
+    return null;
+  }
+  
+  console.log(`[getAccessToken] Token found for userId: ${userId}`);
+  return data.access_token;
 }
 
 async function setAccessToken(userId: string, accessToken: string) {
@@ -264,7 +282,9 @@ async function handleTracks(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log(`[Command] /tracks used by ${userId}`);
   const accessToken = await getAccessToken(userId);
+  
   if (!accessToken) {
+    console.log(`[handleTracks] No access token found for userId: ${userId}`);
     return NextResponse.json({
       type: 4,
       data: {
@@ -273,10 +293,16 @@ async function handleTracks(interaction: any) {
       }
     });
   }
+
   try {
+    console.log(`[handleTracks] Setting access token for userId: ${userId}`);
     spotifyApi.setAccessToken(accessToken);
+    
+    console.log(`[handleTracks] Fetching top tracks for userId: ${userId}`);
     const topTracks: any = await spotifyApi.getMyTopTracks({ limit: 10 });
+    
     if (!topTracks.body || !topTracks.body.items || !Array.isArray(topTracks.body.items) || !topTracks.body.items.length) {
+      console.log(`[handleTracks] No tracks found for userId: ${userId}`);
       return NextResponse.json({
         type: 4,
         data: {
@@ -285,11 +311,15 @@ async function handleTracks(interaction: any) {
         }
       });
     }
+
     // Only cache if we have valid tracks
     if (Array.isArray(topTracks.body.items)) {
+      console.log(`[handleTracks] Caching ${topTracks.body.items.length} tracks for userId: ${userId}`);
       await setCachedTracks(userId, topTracks.body.items);
     }
+
     const username = interaction.member?.user?.username || interaction.user?.username || 'User';
+    console.log(`[handleTracks] Successfully retrieved tracks for userId: ${userId}`);
     return NextResponse.json({
       type: 4,
       data: {
@@ -306,11 +336,17 @@ async function handleTracks(interaction: any) {
       }
     });
   } catch (error: any) {
+    console.error(`[handleTracks] Error for userId: ${userId}:`, error);
+    console.error(`[handleTracks] Error status code:`, error.statusCode);
+    console.error(`[handleTracks] Error message:`, error.message);
+    
     let errorMessage = 'An error occurred while fetching your top tracks.';
     if (error.statusCode === 401 || error.statusCode === 403) {
       errorMessage = 'Your Spotify session has expired or you did not grant the required permissions. Please reconnect using /connect and approve all requested permissions.';
+      console.log(`[handleTracks] Token expired or invalid for userId: ${userId}`);
     } else if (error.statusCode === 429) {
       errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+      console.log(`[handleTracks] Rate limit hit for userId: ${userId}`);
     }
     return NextResponse.json({
       type: 4,
