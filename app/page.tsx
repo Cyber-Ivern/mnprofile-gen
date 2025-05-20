@@ -115,11 +115,11 @@ export default function Home() {
       window.history.replaceState({}, '', '/');
     }
 
+    const cookies = parseCookies();
+
     // Function to check user data
     const checkData = () => {
       console.log('Running checkData...');
-      const cookies = parseCookies();
-      
       if (cookies.spotify_name && cookies.spotify_name !== displayNameRef.current) {
         console.log('Updating display name:', cookies.spotify_name);
         setDisplayName(cookies.spotify_name);
@@ -154,6 +154,22 @@ export default function Home() {
 
     // Initial check
     checkData();
+
+    // If not connected but spotify_token exists, fetch user data
+    if (!cookies.spotify_name && document.cookie.includes('spotify_token')) {
+      fetch('/api/spotify/me')
+        .then(res => res.json())
+        .then(data => {
+          if (data.display_name) {
+            setDisplayName(data.display_name);
+            document.cookie = `spotify_name=${encodeURIComponent(data.display_name)}; path=/; max-age=3600`;
+          }
+          if (data.tracks) {
+            setTracks(data.tracks);
+            document.cookie = `spotify_tracks=${encodeURIComponent(JSON.stringify(data.tracks))}; path=/; max-age=3600`;
+          }
+        });
+    }
   }, []); // Empty dependency array - only run once on mount
 
   const handleConnect = () => {

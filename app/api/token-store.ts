@@ -1,30 +1,6 @@
-import { cookies } from 'next/headers';
 import { supabase } from './supabase';
 
-const COOKIE_NAME = 'spotify_token';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
-
-// Web app token management (using cookies)
-export async function getWebToken(): Promise<string | null> {
-  const cookieStore = cookies();
-  return cookieStore.get(COOKIE_NAME)?.value || null;
-}
-
-export async function setWebToken(token: string): Promise<void> {
-  const cookieStore = cookies();
-  cookieStore.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 7, // 1 week
-    path: '/',
-  });
-}
-
-export async function deleteWebToken(): Promise<void> {
-  const cookieStore = cookies();
-  cookieStore.delete(COOKIE_NAME);
-}
 
 // Bot token management (using Supabase)
 export async function getBotToken(userId: string): Promise<string | null> {
