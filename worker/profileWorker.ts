@@ -2,7 +2,7 @@ import { Worker } from 'bullmq';
 import IORedis from 'ioredis';
 import fetch from 'node-fetch';
 
-const connection = new IORedis(process.env.UPSTASH_REDIS_URL!, {
+const connection = new IORedis(process.env.UPSTASH_REDIS_REST_URL!, {
   password: process.env.UPSTASH_REDIS_PASSWORD,
   tls: {},
   maxRetriesPerRequest: null,
