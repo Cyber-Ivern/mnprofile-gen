@@ -13,68 +13,14 @@ const port = process.env.PORT || 3001;
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+  res.status(200).json({ status: 'ok', uptime: process.uptime() });
 });
 
-// Start the health check server
-const server = app.listen(port, () => {
-  console.log(`Health check server listening on port ${port}`);
-});
-
-// Validate all required environment variables
-const requiredEnvVars = [
-  'UPSTASH_REDIS_REST_URL',
-  'UPSTASH_REDIS_PASSWORD',
-  'OPENAI_API_KEY',
-  'SPOTIFY_CLIENT_ID',
-  'SPOTIFY_CLIENT_SECRET',
-  'DISCORD_TOKEN',
-  'SUPABASE_URL',
-  'SUPABASE_ANON_KEY'
-] as const;
-
-// Check for missing environment variables
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-if (missingEnvVars.length > 0) {
-  console.error('Missing required environment variables:', missingEnvVars.join(', '));
-  process.exit(1);
-}
-
-// Initialize Redis connection with retry logic
+// Declare workers at the top level
+let profileWorker: Worker;
+let imageWorker: Worker;
+let server: any;
 let connection: IORedis;
-let retryCount = 0;
-const maxRetries = 5;
-const retryDelay = 5000; // 5 seconds
-
-async function initializeRedis() {
-  try {
-    connection = new IORedis(process.env.UPSTASH_REDIS_REST_URL!, {
-      password: process.env.UPSTASH_REDIS_PASSWORD!,
-      tls: {},
-      maxRetriesPerRequest: null,
-      retryStrategy: (times) => {
-        if (times > 3) {
-          return null; // Stop retrying after 3 attempts
-        }
-        return Math.min(times * 1000, 3000); // Exponential backoff
-      }
-    });
-
-    // Test the connection
-    await connection.ping();
-    console.log('Successfully connected to Redis');
-    return true;
-  } catch (error) {
-    console.error('Failed to connect to Redis:', error);
-    if (retryCount < maxRetries) {
-      retryCount++;
-      console.log(`Retrying Redis connection (${retryCount}/${maxRetries})...`);
-      await new Promise(resolve => setTimeout(resolve, retryDelay));
-      return initializeRedis();
-    }
-    throw error;
-  }
-}
 
 // Initialize APIs
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
@@ -83,10 +29,6 @@ const spotifyApi = new SpotifyWebApi({
   clientSecret: process.env.SPOTIFY_CLIENT_SECRET!,
   redirectUri: process.env.SPOTIFY_REDIRECT_URI || 'http://localhost:3000/api/callback'
 });
-
-// Declare workers at the top level
-let profileWorker: Worker;
-let imageWorker: Worker;
 
 async function sendDiscordFollowup(applicationId: string, interactionToken: string, content: string, embeds?: any[]) {
   const webhookUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${interactionToken}/messages/@original`;
@@ -128,21 +70,23 @@ async function setCachedTracks(userId: string, tracks: any[]) {
 
 // Graceful shutdown function
 async function shutdown(signal: string) {
-  console.log(`Received ${signal}. Starting graceful shutdown...`);
+  console.log(`[${new Date().toISOString()}] Received ${signal}. Starting graceful shutdown...`);
   
   try {
     // Close the health check server
-    await new Promise<void>((resolve) => {
-      server.close(() => {
-        console.log('Health check server closed');
-        resolve();
+    if (server) {
+      await new Promise<void>((resolve) => {
+        server.close(() => {
+          console.log('[Shutdown] Health check server closed');
+          resolve();
+        });
       });
-    });
+    }
 
     // Close Redis connection
     if (connection) {
       await connection.quit();
-      console.log('Redis connection closed');
+      console.log('[Shutdown] Redis connection closed');
     }
 
     // Close workers
@@ -151,13 +95,13 @@ async function shutdown(signal: string) {
         profileWorker.close(),
         imageWorker.close()
       ]);
-      console.log('Workers closed');
+      console.log('[Shutdown] Workers closed');
     }
 
-    console.log('Graceful shutdown completed');
+    console.log('[Shutdown] Graceful shutdown completed');
     process.exit(0);
   } catch (error) {
-    console.error('Error during shutdown:', error);
+    console.error('[Shutdown] Error during shutdown:', error);
     process.exit(1);
   }
 }
@@ -166,13 +110,78 @@ async function shutdown(signal: string) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
+// Initialize Redis connection with retry logic
+async function initializeRedis() {
+  console.log('[Startup] Initializing Redis connection...');
+  let retryCount = 0;
+  const maxRetries = 5;
+  const retryDelay = 5000; // 5 seconds
+
+  while (retryCount < maxRetries) {
+    try {
+      connection = new IORedis(process.env.UPSTASH_REDIS_REST_URL!, {
+        password: process.env.UPSTASH_REDIS_PASSWORD!,
+        tls: {},
+        maxRetriesPerRequest: null,
+        retryStrategy: (times) => {
+          if (times > 3) return null;
+          return Math.min(times * 1000, 3000);
+        }
+      });
+
+      await connection.ping();
+      console.log('[Startup] Successfully connected to Redis');
+      return true;
+    } catch (error) {
+      retryCount++;
+      console.error(`[Startup] Redis connection attempt ${retryCount}/${maxRetries} failed:`, error);
+      
+      if (retryCount === maxRetries) {
+        throw new Error('Failed to connect to Redis after maximum retries');
+      }
+      
+      console.log(`[Startup] Retrying Redis connection in ${retryDelay/1000} seconds...`);
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
+    }
+  }
+}
+
 // Start the worker
 async function start() {
+  console.log('[Startup] Starting worker process...');
+  
   try {
-    // Initialize Redis first
+    // Validate environment variables first
+    console.log('[Startup] Validating environment variables...');
+    const requiredEnvVars = [
+      'UPSTASH_REDIS_REST_URL',
+      'UPSTASH_REDIS_PASSWORD',
+      'OPENAI_API_KEY',
+      'SPOTIFY_CLIENT_ID',
+      'SPOTIFY_CLIENT_SECRET',
+      'DISCORD_TOKEN',
+      'SUPABASE_URL',
+      'SUPABASE_ANON_KEY'
+    ] as const;
+
+    const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+    if (missingEnvVars.length > 0) {
+      throw new Error(`Missing required environment variables: ${missingEnvVars.join(', ')}`);
+    }
+    console.log('[Startup] Environment variables validated');
+
+    // Start health check server first
+    console.log('[Startup] Starting health check server...');
+    server = app.listen(port, () => {
+      console.log(`[Startup] Health check server listening on port ${port}`);
+    });
+
+    // Initialize Redis
     await initializeRedis();
 
     // Create workers
+    console.log('[Startup] Creating workers...');
+    
     profileWorker = new Worker('profile-generation', async (job) => {
       const data = job.data as ProfileJobData;
       const { userId, username, interactionToken, applicationId, accessToken } = data;
@@ -350,15 +359,16 @@ Include a fun title for the profile.`
       });
     });
 
-    console.log('Workers started successfully');
+    console.log('[Startup] Workers started successfully');
   } catch (error) {
-    console.error('Failed to start workers:', error);
-    process.exit(1);
+    console.error('[Startup] Fatal error during startup:', error);
+    await shutdown('STARTUP_ERROR');
   }
 }
 
 // Start the application
-start().catch(error => {
-  console.error('Fatal error:', error);
-  process.exit(1);
+console.log('[Startup] Worker process starting...');
+start().catch(async (error) => {
+  console.error('[Startup] Unhandled startup error:', error);
+  await shutdown('UNHANDLED_ERROR');
 }); 
