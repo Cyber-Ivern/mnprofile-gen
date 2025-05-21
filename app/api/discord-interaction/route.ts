@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import SpotifyWebApi from 'spotify-web-api-node';
 import OpenAI from 'openai';
 import { supabase } from '../supabase';
+import { enqueueProfileJob, enqueueImageJob } from '../../../queue/profileQueue';
 
 // Validate environment variables
 const {
@@ -234,7 +235,7 @@ async function handleProfile(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log(`[Command] /profile used by ${userId}`);
   
-  // Send deferred response IMMEDIATELY, before any processing
+  // Send deferred response IMMEDIATELY
   const deferredResponse = NextResponse.json({
     type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
     data: {
@@ -242,124 +243,53 @@ async function handleProfile(interaction: any) {
     }
   });
 
-  // Get the interaction token for follow-up
-  const interactionToken = interaction.token;
-  
-  // Start processing in the background
-  (async () => {
-    try {
-      console.log(`[handleProfile] Processing for userId: ${userId}`);
-      const accessToken = await getAccessToken(userId);
-      if (!accessToken) {
-        console.log(`[handleProfile] No access token for userId: ${userId}`);
-        // Send follow-up message
-        await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bot ${DISCORD_TOKEN}`
-          },
-          body: JSON.stringify({
-            content: 'Please connect your Spotify account first using /connect',
-            flags: 64
-          })
-        });
-        return;
-      }
+  // Get the access token first
+  const accessToken = await getAccessToken(userId);
+  if (!accessToken) {
+    console.log(`[handleProfile] No access token for userId: ${userId}`);
+    // Send follow-up message
+    await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${DISCORD_TOKEN}`
+      },
+      body: JSON.stringify({
+        content: 'Please connect your Spotify account first using /connect',
+        flags: 64
+      })
+    });
+    return deferredResponse;
+  }
 
-      // Rest of the profile generation logic...
-      let tracks = await getCachedTracks(userId);
-      if (!tracks) {
-        spotifyApi.setAccessToken(accessToken);
-        const topTracks: any = await spotifyApi.getMyTopTracks({ limit: 10 });
-        tracks = topTracks.body.items.map((track: any) => ({
-          name: track.name,
-          artist: track.artists[0].name
-        }));
-        if (Array.isArray(tracks)) {
-          await setCachedTracks(userId, tracks);
-        }
-        console.log(`[handleProfile] Fetched tracks from Spotify for userId: ${userId}`);
-      } else {
-        console.log(`[handleProfile] Using cached tracks for userId: ${userId}`);
-      }
+  try {
+    // Enqueue the profile generation job
+    await enqueueProfileJob({
+      userId,
+      username: interaction.member?.user?.username || interaction.user?.username,
+      interactionToken: interaction.token,
+      applicationId: DISCORD_CLIENT_ID!,
+      channelId: interaction.channel_id,
+      accessToken
+    });
 
-      if (!Array.isArray(tracks)) tracks = [];
-      const displayName = interaction.member?.user?.username || interaction.user?.username;
-      const trackList = tracks
-        .map((track: any, index: number) => `${index + 1}. **${track.name}** - ${track.artist}`)
-        .join('\n');
+    console.log(`[handleProfile] Enqueued profile generation job for userId: ${userId}`);
+  } catch (error) {
+    console.error(`[handleProfile] Error enqueueing job for userId: ${userId}:`, error);
+    // Send error as follow-up
+    await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${DISCORD_TOKEN}`
+      },
+      body: JSON.stringify({
+        content: 'An error occurred while queuing your profile generation. Please try again later.',
+        flags: 64
+      })
+    });
+  }
 
-      console.log(`[handleProfile] Sending request to OpenAI for userId: ${userId}`);
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: `You are a witty and insightful music critic who creates engaging profiles based on someone's top tracks. \nFocus on identifying patterns, genres, and musical preferences. \nBe specific about the artists and songs mentioned.\nKeep the profile concise (2-3 paragraphs) and engaging.\nFormat the response with emojis and markdown for better readability.\nInclude a fun title for the profile.`
-          },
-          {
-            role: "user",
-            content: `Create a music nerd profile based on these top tracks: ${trackList}`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 500
-      });
-
-      console.log(`[handleProfile] OpenAI response received for userId: ${userId}`);
-      const profile = completion.choices[0].message.content;
-
-      // Send follow-up message with the profile
-      await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bot ${DISCORD_TOKEN}`
-        },
-        body: JSON.stringify({
-          embeds: [
-            {
-              title: `🎵 ${displayName}'s Music Nerd Profile`,
-              description: profile,
-              fields: [
-                {
-                  name: '🎧 Top Tracks',
-                  value: trackList
-                }
-              ],
-              color: 0x1DB954,
-              footer: { text: 'Generated with Spotify & OpenAI' },
-              timestamp: new Date().toISOString()
-            }
-          ]
-        })
-      });
-    } catch (error: any) {
-      console.error(`[handleProfile] Error for userId: ${userId}:`, error);
-      let errorMessage = 'An error occurred while generating your profile.';
-      if (error.statusCode === 401) {
-        errorMessage = 'Your Spotify session has expired. Please reconnect using /connect';
-      } else if (error.statusCode === 429) {
-        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
-      }
-
-      // Send error as follow-up
-      await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bot ${DISCORD_TOKEN}`
-        },
-        body: JSON.stringify({
-          content: errorMessage,
-          flags: 64
-        })
-      });
-    }
-  })();
-
-  // Return the deferred response immediately
   return deferredResponse;
 }
 
@@ -447,7 +377,7 @@ async function handleImage(interaction: any) {
   const userId = interaction.member?.user?.id || interaction.user?.id;
   console.log(`[Command] /image used by ${userId}`);
   
-  // Send deferred response IMMEDIATELY, before any processing
+  // Send deferred response IMMEDIATELY
   const deferredResponse = NextResponse.json({
     type: 5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
     data: {
@@ -455,115 +385,53 @@ async function handleImage(interaction: any) {
     }
   });
 
-  // Get the interaction token for follow-up
-  const interactionToken = interaction.token;
-  
-  // Start processing in the background
-  (async () => {
-    try {
-      console.log(`[handleImage] Processing for userId: ${userId}`);
-      const accessToken = await getAccessToken(userId);
-      if (!accessToken) {
-        console.log(`[handleImage] No access token for userId: ${userId}`);
-        // Send follow-up message
-        await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bot ${DISCORD_TOKEN}`
-          },
-          body: JSON.stringify({
-            content: 'Please connect your Spotify account first using /connect',
-            flags: 64
-          })
-        });
-        return;
-      }
+  // Get the access token first
+  const accessToken = await getAccessToken(userId);
+  if (!accessToken) {
+    console.log(`[handleImage] No access token for userId: ${userId}`);
+    // Send follow-up message
+    await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${DISCORD_TOKEN}`
+      },
+      body: JSON.stringify({
+        content: 'Please connect your Spotify account first using /connect',
+        flags: 64
+      })
+    });
+    return deferredResponse;
+  }
 
-      // Rest of the image generation logic...
-      spotifyApi.setAccessToken(accessToken);
-      const topTracks: any = await spotifyApi.getMyTopTracks({ limit: 5 });
-      const tracks = topTracks.body.items.map((track: any) => ({
-        name: track.name,
-        artist: track.artists[0].name
-      }));
+  try {
+    // Enqueue the image generation job
+    await enqueueImageJob({
+      userId,
+      username: interaction.member?.user?.username || interaction.user?.username,
+      interactionToken: interaction.token,
+      applicationId: DISCORD_CLIENT_ID!,
+      channelId: interaction.channel_id,
+      accessToken
+    });
 
-      console.log(`[handleImage] Sending request to OpenAI for userId: ${userId}`);
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4",
-        messages: [
-          {
-            role: "system",
-            content: "You are an expert at creating detailed image generation prompts that capture the essence of music."
-          },
-          {
-            role: "user",
-            content: `Create a detailed prompt for DALL-E to generate an image that represents this music taste:\n${tracks.map((track: any, i: number) => `${i + 1}. ${track.name} by ${track.artist}`).join('\n')}\n\nThe prompt should:\n1. Be highly detailed and specific\n2. Capture the mood and style of the music\n3. Be suitable for DALL-E image generation\n4. Be 1-2 sentences long\n5. Focus on creating a cohesive visual representation`
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 200
-      });
+    console.log(`[handleImage] Enqueued image generation job for userId: ${userId}`);
+  } catch (error) {
+    console.error(`[handleImage] Error enqueueing job for userId: ${userId}:`, error);
+    // Send error as follow-up
+    await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interaction.token}/messages/@original`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bot ${DISCORD_TOKEN}`
+      },
+      body: JSON.stringify({
+        content: 'An error occurred while queuing your image generation. Please try again later.',
+        flags: 64
+      })
+    });
+  }
 
-      console.log(`[handleImage] OpenAI prompt response received for userId: ${userId}`);
-      const imagePrompt = completion.choices[0].message.content;
-      const imageResponse = await openai.images.generate({
-        model: "dall-e-3",
-        prompt: imagePrompt!,
-        n: 1,
-        size: "1024x1024",
-        quality: "standard",
-        style: "vivid"
-      });
-
-      console.log(`[handleImage] DALL-E image generated for userId: ${userId}`);
-      const imageUrl = imageResponse.data[0].url;
-
-      // Send follow-up message with the image
-      await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bot ${DISCORD_TOKEN}`
-        },
-        body: JSON.stringify({
-          embeds: [
-            {
-              title: `🎨 ${interaction.member?.user?.username || interaction.user?.username}'s Music Visualization`,
-              description: `*Generated by your music taste*\n\n**Prompt:** ${imagePrompt}`,
-              image: { url: imageUrl || '' },
-              color: 0x1DB954,
-              footer: { text: 'Generated with Spotify & OpenAI DALL-E' },
-              timestamp: new Date().toISOString()
-            }
-          ]
-        })
-      });
-    } catch (error: any) {
-      console.error(`[handleImage] Error for userId: ${userId}:`, error);
-      let errorMessage = 'An error occurred while generating your image.';
-      if (error.statusCode === 401 || error.statusCode === 403) {
-        errorMessage = 'Your Spotify session has expired or you did not grant the required permissions. Please reconnect using /connect and approve all requested permissions.';
-      } else if (error.statusCode === 429) {
-        errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
-      }
-
-      // Send error as follow-up
-      await fetch(`https://discord.com/api/v10/webhooks/${DISCORD_CLIENT_ID}/${interactionToken}/messages/@original`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bot ${DISCORD_TOKEN}`
-        },
-        body: JSON.stringify({
-          content: errorMessage,
-          flags: 64
-        })
-      });
-    }
-  })();
-
-  // Return the deferred response immediately
   return deferredResponse;
 }
 

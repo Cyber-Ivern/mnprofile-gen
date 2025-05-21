@@ -9,7 +9,8 @@
     "build:bot": "npm install && tsc",
     "start": "next start",
     "lint": "next lint",
-    "register-commands": "tsx scripts/register-commands.ts"
+    "register-commands": "tsx scripts/register-commands.ts",
+    "worker": "tsx worker/profileWorker.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",
