@@ -4,7 +4,8 @@ import fetch from 'node-fetch';
 
 const connection = new IORedis(process.env.UPSTASH_REDIS_URL!, {
   password: process.env.UPSTASH_REDIS_PASSWORD,
-  tls: {}
+  tls: {},
+  maxRetriesPerRequest: null,
 });
 
 async function sendDiscordFollowup({ applicationId, interactionToken, content }: { applicationId: string, interactionToken: string, content: string }) {
@@ -28,7 +29,7 @@ const worker = new Worker('profile', async job => {
     // For now, mock the result
     const imagePrompt = 'This is a mock image prompt.';
     const imageUrl = 'https://via.placeholder.com/512';
-    const content = `**🎨 ${username}'s Music Visualization**\n\n*"${imagePrompt}"*\n\n${imageUrl}`;
+    const content = `**🎨 ${username}'s Music Visualization**\n\n*\"${imagePrompt}\"*\n\n${imageUrl}`;
     await sendDiscordFollowup({ applicationId, interactionToken, content });
   } else {
     await sendDiscordFollowup({ applicationId, interactionToken, content: 'Unknown job type.' });
