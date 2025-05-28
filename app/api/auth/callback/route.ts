@@ -7,10 +7,18 @@
 
 import { NextResponse } from 'next/server';
 import { getAccessToken, getUserProfile, getTopTracks } from '@/utils/spotify';
+import { userTokens } from '@/utils/spotify-client';
 
-interface StateParams {
+// Constants for validation
+const VALID_TIME_RANGES = ['short_term', 'medium_term', 'long_term'] as const;
+const DEFAULT_TIME_RANGE = 'short_term';
+const DEFAULT_TRACK_LIMIT = '10';
+
+interface StateData {
+  userId: string;
   timeRange: string;
   trackLimit: string;
+  timestamp: number;
 }
 
 export async function GET(request: Request) {
@@ -25,23 +33,65 @@ export async function GET(request: Request) {
     hasState: !!stateParam
   });
 
+  // Default values
   let timeRange = 'short_term';
   let trackLimit = '10';
+  let userId: string | null = null;
 
+  // Parse and validate state
   if (stateParam) {
     try {
-      const state = JSON.parse(stateParam) as StateParams;
-      timeRange = state.timeRange;
-      trackLimit = state.trackLimit;
-      console.log('Successfully parsed state:', { timeRange, trackLimit });
+      // Decode base64 state
+      const decodedState = Buffer.from(stateParam, 'base64').toString();
+      const state = JSON.parse(decodedState) as StateData;
+      
+      // Validate state data
+      if (!state.userId || typeof state.userId !== 'string') {
+        throw new Error('Invalid state: missing or invalid userId');
+      }
+      
+      // Validate time range
+      if (state.timeRange && VALID_TIME_RANGES.includes(state.timeRange as any)) {
+        timeRange = state.timeRange;
+      } else {
+        console.warn(`Invalid time range in state: ${state.timeRange}, using default: ${DEFAULT_TIME_RANGE}`);
+      }
+      
+      // Validate track limit
+      const parsedLimit = parseInt(state.trackLimit);
+      if (state.trackLimit && !isNaN(parsedLimit) && parsedLimit > 0 && parsedLimit <= 50) {
+        trackLimit = state.trackLimit;
+      } else {
+        console.warn(`Invalid track limit in state: ${state.trackLimit}, using default: ${DEFAULT_TRACK_LIMIT}`);
+      }
+      
+      // Validate timestamp (optional: check if state is not too old)
+      const stateAge = Date.now() - state.timestamp;
+      if (stateAge > 3600000) { // 1 hour
+        console.warn('State is older than 1 hour, but proceeding anyway');
+      }
+      
+      userId = state.userId;
+      console.log('Successfully parsed and validated state:', { 
+        userId,
+        timeRange,
+        trackLimit,
+        stateAge: `${Math.round(stateAge / 1000)}s`
+      });
     } catch (e) {
       console.error('Error parsing state parameter:', e);
+      // If we can't parse the state, we'll use defaults but log the error
     }
   }
 
   if (!code) {
     console.error('No code received in callback');
     return NextResponse.redirect(new URL('/?error=auth_failed', request.url));
+  }
+
+  if (!userId) {
+    console.error('No userId found in state');
+    return NextResponse.redirect(new URL('/?error=invalid_state', request.url));
   }
 
   try {
@@ -121,6 +171,10 @@ export async function GET(request: Request) {
       });
       response.cookies.set('spotify_timeRange', timeRange, cookieOptions);
       response.cookies.set('spotify_trackLimit', trackLimit, cookieOptions);
+
+      // When storing tokens, include the validated timeRange
+      userTokens.set(userId, access_token);
+      console.log(`[Callback] Stored access token for userId: ${userId} with timeRange: ${timeRange}`);
 
       console.log('Auth callback completed successfully');
       return response;

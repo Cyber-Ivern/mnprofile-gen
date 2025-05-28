@@ -33,6 +33,11 @@ const openai = new OpenAI({
   apiKey: OPENAI_API_KEY!,
 });
 
+// Add these constants at the top with other constants
+const VALID_TIME_RANGES = ['short_term', 'medium_term', 'long_term'] as const;
+const DEFAULT_TIME_RANGE = 'short_term';
+const DEFAULT_TRACK_LIMIT = '10';
+
 // Helper to send a DM via Discord API
 async function sendDMToUser(userId: string, message: string) {
   if (!DISCORD_TOKEN) throw new Error('DISCORD_TOKEN is not set');
@@ -71,21 +76,35 @@ async function handleConnect(interaction: any) {
   
   // Log the VERCEL_URL for debugging
   console.log(`[handleConnect] VERCEL_URL: ${VERCEL_URL}`);
-  
   console.log(`[handleConnect] Using redirect URI: ${SPOTIFY_REDIRECT_URI}`);
   
   try {
+    // Create state object with default values
+    const stateData = {
+      userId,
+      timeRange: DEFAULT_TIME_RANGE,
+      trackLimit: DEFAULT_TRACK_LIMIT,
+      timestamp: Date.now() // Add timestamp for additional security
+    };
+
+    // Encode state as base64 to ensure it's URL-safe
+    const stateString = Buffer.from(JSON.stringify(stateData)).toString('base64');
+    
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: SPOTIFY_CLIENT_ID!,
       scope: scopes.join(' '),
       redirect_uri: SPOTIFY_REDIRECT_URI!,
-      state: userId,
+      state: stateString,
       show_dialog: 'true'
     });
     
     const authorizeURL = `https://accounts.spotify.com/authorize?${params.toString()}`;
-    console.log(`[handleConnect] Generated auth URL: ${authorizeURL}`);
+    console.log(`[handleConnect] Generated auth URL with state:`, {
+      statePreview: stateString.substring(0, 20) + '...',
+      userId,
+      timeRange: DEFAULT_TIME_RANGE
+    });
     
     try {
       await sendDMToUser(userId, `Click this link to connect your Spotify account: ${authorizeURL}`);
