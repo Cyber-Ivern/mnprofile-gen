@@ -7,7 +7,7 @@
 
 import { NextResponse } from 'next/server';
 import { getAccessToken, getUserProfile, getTopTracks } from '@/utils/spotify';
-import { userTokens } from '@/utils/spotify-client';
+import { supabase } from '../../supabase';
 
 // Constants for validation
 const VALID_TIME_RANGES = ['short_term', 'medium_term', 'long_term'] as const;
@@ -140,6 +140,25 @@ export async function GET(request: Request) {
         trackLimit
       });
 
+      // Store tokens in Supabase instead of userTokens
+      const { error: upsertError } = await supabase
+        .from('spotify_tokens')
+        .upsert({ 
+          user_id: userId, 
+          access_token: access_token,
+          refresh_token: refresh_token,
+          time_range: timeRange,
+          track_limit: trackLimit,
+          updated_at: new Date().toISOString()
+        });
+
+      if (upsertError) {
+        console.error('Error storing tokens in Supabase:', upsertError);
+        throw new Error('Failed to store tokens');
+      }
+
+      console.log(`[Callback] Stored tokens in Supabase for userId: ${userId} with timeRange: ${timeRange}`);
+
       // Create response with cookies and client-side redirect
       const response = new NextResponse(`
         <html>
@@ -171,10 +190,6 @@ export async function GET(request: Request) {
       });
       response.cookies.set('spotify_timeRange', timeRange, cookieOptions);
       response.cookies.set('spotify_trackLimit', trackLimit, cookieOptions);
-
-      // When storing tokens, include the validated timeRange
-      userTokens.set(userId, access_token);
-      console.log(`[Callback] Stored access token for userId: ${userId} with timeRange: ${timeRange}`);
 
       console.log('Auth callback completed successfully');
       return response;
