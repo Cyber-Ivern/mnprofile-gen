@@ -13,6 +13,9 @@ export const supabase = createClient(
 export interface SpotifyToken {
   user_id: string;
   access_token: string;
+  refresh_token: string;
+  time_range: string;
+  track_limit: string;
   created_at: string;
   updated_at: string;
 }
@@ -35,6 +38,12 @@ create table spotify_tokens (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+
+-- Add new columns to spotify_tokens table
+alter table spotify_tokens
+  add column if not exists refresh_token text,
+  add column if not exists time_range text default 'short_term',
+  add column if not exists track_limit text default '10';
 
 -- Create track_cache table
 create table track_cache (

@@ -149,6 +149,7 @@ export async function GET(request: Request) {
           refresh_token: refresh_token,
           time_range: timeRange,
           track_limit: trackLimit,
+          created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         });
 
@@ -157,9 +158,15 @@ export async function GET(request: Request) {
         throw new Error('Failed to store tokens');
       }
 
-      console.log(`[Callback] Stored tokens in Supabase for userId: ${userId} with timeRange: ${timeRange}`);
+      // Store additional data in cookies for client-side access
+      const cookieOptions = {
+        httpOnly: false,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax' as const,
+        path: '/',
+        maxAge: 3600
+      };
 
-      // Create response with cookies and client-side redirect
       const response = new NextResponse(`
         <html>
           <body>
@@ -173,25 +180,15 @@ export async function GET(request: Request) {
         headers: { 'Content-Type': 'text/html' }
       });
       
-      // Set cookies
-      const cookieOptions = {
-        httpOnly: false,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax' as const,
-        path: '/',
-        maxAge: 3600
-      };
-
       response.cookies.set('spotify_name', profile.display_name, cookieOptions);
       response.cookies.set('spotify_tracks', JSON.stringify(topTracks), cookieOptions);
+      // Note: We still store refresh_token in cookies for client-side refresh operations
       response.cookies.set('spotify_refresh_token', refresh_token, {
         ...cookieOptions,
         httpOnly: true
       });
-      response.cookies.set('spotify_timeRange', timeRange, cookieOptions);
-      response.cookies.set('spotify_trackLimit', trackLimit, cookieOptions);
 
-      console.log('Auth callback completed successfully');
+      console.log(`[Callback] Stored tokens and preferences in Supabase for userId: ${userId} with timeRange: ${timeRange}`);
       return response;
     } catch (profileError) {
       console.error('Error in profile/tracks flow:', profileError);
